@@ -14,13 +14,32 @@ the C library, is the zlib data compression library.
 To install FLASH, download the tarball, untar it, and compile the code using the
 provided Makefile:
 
-$ tar xzf FLASH-1.1.tar.gz
-$ cd FLASH-1.1
+$ tar xzf FLASH-1.2.tar.gz
+$ cd FLASH-1.2
 $ make
 
 The executable file that is produced is named 'flash'.
 
+By default, FLASH uses multiple threads.  There are "combiner" threads that do
+the actual read combining, as well as 5 threads that are used for I/O (2
+readers, 3 writers).  The default number of combiner threads is the number of
+processors; however, it can be adjusted with the -t  option (long option:
+--threads).
+
+When multiple combiner threads are used, the order of the combined and
+uncombined reads in the output files will be nondeterministic.  If you need to
+enforce that the output reads appear in the same order as the input, you must
+specify --threads=1, or compile FLASH without support for multiple threads (see
+below).
+
+FLASH may be configured at compile-time to be entirely single-threaded.  If you
+would like to do this, you may unset the 'MULTITHREADED' variable in the
+Makefile.
+
 				     USAGE
+
+NOTE:  This information is outdated; see the program help (`flash --help') for
+the up-to-date help.
 
 flash <mates1.fastq> <mates2.fastq> [-m minOverlap] [-M maxOverlap] [-x mismatchRatio] 
 [-p phredOffset] [-o prefixOfOutputFiles] [-d pathToDirectoryForOutputFiles] 
@@ -79,8 +98,7 @@ fragment length. Default: 20.
 FLASH is extremely fast tool for merging mates from short paired-end library. It processes 
 one million 100-bp read pairs in 120 seconds on a server with 256 GB of RAM and a six-core 
 2.4 GHz AMD Opteron, or in 129 seconds on a desktop with 2 GB of RAM and a dual-core Intel 
-Xeon 3.00 GHz CPU. FLASH currently runs only in single threaded mode.
-
+Xeon 3.00 GHz CPU.
 
 				    ACCURACY
 
