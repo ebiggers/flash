@@ -1,12 +1,3 @@
-Version v1.2
--------------------
-
-- Support for writing extended fragments directly to standard output.
-- Support for writing compressed output files.
-- Support for multithreading.  There are multiple I/O threads as well as
-multiple combiner threads.  Speedup of 3.6 times has been observed.  Compiling
-without support for multithreading is still supported.
-
 Version v1.1
 -------------------
 Rewrote the entire program.
