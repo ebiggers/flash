@@ -4,24 +4,20 @@ are shorter than twice the length of reads. Merged read pairs result in unpaired
 longer reads. Longer reads are generally more desired in genome assembly and 
 genome analysis processes.
 
-				  INSTALLATION
 
-FLASH runs on UNIX-compatible systems only (including GNU/Linux).
+INSTALLATION
+Download the package and run
 
-The only dependency, other than functions that are expected to be available in
-the C library, is the zlib data compression library.
+tar -xvf FLASH.tar (to untar the file)
+./buildBinaries.sh (to build the executable file)
 
-To install FLASH, download the tarball, untar it, and compile the code using the
-provided Makefile:
+A simple installation script for Linux x86_64 system using gcc compiler is provided. 
+Running ./buildBinaries.sh on the command prompt will create executable file "flash".
+FLASH does not depend on any particular architecture, so if you are using a different 
+compiler, you should be able to write your own script to install FLASH.
 
-$ tar xzf FLASH-1.1.tar.gz
-$ cd FLASH-1.1
-$ make
 
-The executable file that is produced is named 'flash'.
-
-				     USAGE
-
+USAGE
 flash <mates1.fastq> <mates2.fastq> [-m minOverlap] [-M maxOverlap] [-x mismatchRatio] 
 [-p phredOffset] [-o prefixOfOutputFiles] [-d pathToDirectoryForOutputFiles] 
 [-f averageFragment Length] [-s standardDeviationOfFragments] [-r averageReadLength]
@@ -74,22 +70,19 @@ fragment length. Default: 20.
 -h: display help information.
 
 
-				  PERFORMANCE
-
+PERFORMANCE
 FLASH is extremely fast tool for merging mates from short paired-end library. It processes 
 one million 100-bp read pairs in 120 seconds on a server with 256 GB of RAM and a six-core 
 2.4 GHz AMD Opteron, or in 129 seconds on a desktop with 2 GB of RAM and a dual-core Intel 
 Xeon 3.00 GHz CPU. FLASH currently runs only in single threaded mode.
 
 
-				    ACCURACY
-
+ACCURACY
 With reads' error rate of 1% or less, FLASH processes over 99% of read pairs correctly. With 
 error rate of 2%, FLASH processes over 98% of read pairs correctly when default parameters 
 are used. With more aggressive parameters (i.e., -x 0.35), FLASH processes over 90% of read 
 pairs correctly even when the error rate is 5%.
 
 
-			  COMMENTS/QUESTIONS/REQUESTS
-
+COMMENTS/QUESTIONS/REQUESTS
 Send an e-mail to flash.comment@gmail.com

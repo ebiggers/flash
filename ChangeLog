@@ -1,27 +1,3 @@
-Version v1.1
--------------------
-Rewrote the entire program.
-- Removed at least 3 instances of undefined behavior (such as using
-uninitialized variables).
-- Performance improvements. Neglecting I/O, the program now runs over twice as
-fast.  This improvement is not due to a change in algorithm; I expect it is due
-mainly to the rewritten align_position() function.
-- Use getopt_long() for option parsing.  Now, long options are accepted, and
-options do not have to be given after the mate pair FASTQ files.
-- Removed many fixed-size buffers.  This saves memory, removes many buffer
-overflow problems, and removes the READ_LENGTH parameter.  Note: the maximum tag
-length is still hard-coded as 1024 bytes.
-- Much more error checking, so the program will cleanly fail if something goes
-wrong.
-- Use a Makefile instead of a shell script.
-- The '.histogram' file is written a bit more narrowly (80 columns), but other
-than that, the output of the program should be the same (unless it was affected
-by any of the cases of undefined behavior I found).
-- Some changes to the MANUAL, although I didn't feel like changing the
-information that is redundant with the program help.
-- Note: I am calling this version 1.1, but feel free to call it something else.
-The version number is also listed in the version() function in flash.c.
-
 Version v1.0.3
 --------------
 1. FLASH allows reads files to be in gzip format.
