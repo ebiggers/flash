@@ -11,7 +11,7 @@
 #include "fastq.h"
 #include "util.h"
 
-#define VERSION_STR "v1.2"
+#define VERSION_STR "v1.2.1"
 
 static void usage()
 {
@@ -128,7 +128,7 @@ static void usage_short()
 
 static void version()
 {
-	puts("flash " VERSION_STR);
+	puts("FLASH " VERSION_STR);
 }
 
 static const char *optstring = "m:M:x:p:r:f:s:o:d:czt:qhv";

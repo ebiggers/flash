@@ -6,7 +6,9 @@ are shorter than twice the length of reads.  Merged read pairs result in
 unpaired longer reads.  Longer reads are generally more desired in genome
 assembly and genome analysis processes.
 
-FLASH cannot merge paired-end reads that do not overlap.
+FLASH cannot merge paired-end reads that do not overlap.  It also cannot merge
+jumping read pairs that have an outward orientation (but these reads tend not to
+overlap anyway).
 
 				  INSTALLATION
 
