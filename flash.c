@@ -228,7 +228,7 @@ static void hist_add(struct histogram *hist, unsigned long idx,
 		hist->len = new_len;
 		hist->array = array;
 	}
-	array[idx]++;
+	array[idx] += amount;
 }
 
 static void hist_inc(struct histogram *hist, unsigned long idx)
@@ -865,7 +865,8 @@ int main(int argc, char **argv)
 		}
 	}
 	if (verbose) {
-		info("Processed %lu reads", pair_no);
+		if (pair_no % 25000 != 0)
+			info("Processed %lu reads", pair_no);
 		info("Closing input and output FASTQ files");
 	}
 	gzclose(mates1_gzf);

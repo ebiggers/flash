@@ -380,7 +380,7 @@ static void *fastq_reader_thread_proc(void *p)
 		read_queue_put(ready_q, r);
 	}
 out:
-	if (params->verbose)
+	if (params->verbose && pair_no % 25000 != 0)
 		info("Processed %lu reads", pair_no);
 	free_read(r->reads[i]);
 	r->reads[i] = NULL;
