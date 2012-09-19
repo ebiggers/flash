@@ -3,6 +3,8 @@
 #include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/time.h>
+#include <inttypes.h>
 #include <zlib.h>
 
 #include "combine_reads.h"
@@ -548,6 +550,8 @@ int main(int argc, char **argv)
 	const struct file_operations *fops = &normal_fops;
 	int c;
 	char *tmp;
+	struct timeval start_time;
+	gettimeofday(&start_time, NULL);
 
 	while ((c = getopt_long(argc, argv, optstring, longopts, NULL)) != -1) {
 		switch (c) {
@@ -888,7 +892,7 @@ int main(int argc, char **argv)
 		num_total_reads = hist_total(combined_read_len_hist);
 		num_combined_reads = num_total_reads - num_uncombined_reads;
 		info(" ");
-		info("Read combination completed!");
+		info("Read combination statistics:");
 		info("    Total reads:      %lu", num_total_reads);
 		info("    Combined reads:   %lu", num_combined_reads);
 		info("    Uncombined reads: %lu", num_uncombined_reads);
@@ -903,7 +907,7 @@ int main(int argc, char **argv)
 		long last_nonzero_idx;
 
 		if (verbose)
-			info("Writing histogram files");
+			info("Writing histogram files.");
 
 		hist_stats(combined_read_len_hist,
 			   &max_freq, &first_nonzero_idx, &last_nonzero_idx);
@@ -922,7 +926,14 @@ int main(int argc, char **argv)
 	}
 	hist_destroy(combined_read_len_hist);
 
-	if (verbose)
-		info("FLASH " VERSION_STR " complete.");
+	if (verbose) {
+		struct timeval end_time;
+		gettimeofday(&end_time, NULL);
+		uint64_t start_usec = start_time.tv_sec * 1000000 + start_time.tv_usec;
+		uint64_t end_usec = end_time.tv_sec * 1000000 + end_time.tv_usec;
+		info(" ");
+		info("FLASH " VERSION_STR " complete!");
+		info("%.3f seconds elapsed", (double)(end_usec - start_usec) / 1000000);
+	}
 	return 0;
 }
