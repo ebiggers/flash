@@ -1,10 +1,10 @@
 				  INTRODUCTION
 
-FLASH (Fast Length Adjustment of SHort reads) is a very accurate and fast tool 
-to merge paired-end reads that were generated from DNA fragments whose lengths 
-are shorter than twice the length of reads. Merged read pairs result in unpaired 
-longer reads. Longer reads are generally more desired in genome assembly and 
-genome analysis processes.
+FLASH (Fast Length Adjustment of SHort reads) is a very accurate and fast tool
+to merge paired-end reads that were generated from DNA fragments whose lengths
+are shorter than twice the length of reads.  Merged read pairs result in
+unpaired longer reads.  Longer reads are generally more desired in genome
+assembly and genome analysis processes.
 
 FLASH cannot merge paired-end reads that do not overlap.
 
@@ -18,8 +18,8 @@ the C library, is the zlib data compression library.
 To install FLASH, download the tarball, untar it, and compile the code using the
 provided Makefile:
 
-$ tar xzf FLASH-1.2.tar.gz
-$ cd FLASH-1.2
+$ tar xzf FLASH-1.2.1.tar.gz
+$ cd FLASH-1.2.1
 $ make
 
 The executable file that is produced is named 'flash'.

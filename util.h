@@ -36,6 +36,7 @@ typedef void (*write_read_t)(struct read *read, void *fp, int phred_offset);
 
 struct file_operations {
 	const char *name;
+	const char *suffix;
 	const open_file_t  open_file;
 	const close_file_t close_file;
 	const write_read_t write_read;

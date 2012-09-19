@@ -1,4 +1,12 @@
-Version v1.2
+Version 1.2.1
+-------------------
+- There is no longer any read length or tag length limit, although you may still
+specify the --read-len parameter for the purpose of automatically computing the
+maximum overlap.
+- FLASH now prints some informational output while it's running, unless running
+with --quiet or --to-stdout.
+
+Version 1.2
 -------------------
 
 - Support for writing extended fragments directly to standard output.
@@ -7,7 +15,7 @@ Version v1.2
 multiple combiner threads.  Speedup of 3.6 times has been observed.  Compiling
 without support for multithreading is still supported.
 
-Version v1.1
+Version 1.1
 -------------------
 Rewrote the entire program.
 - Removed at least 3 instances of undefined behavior (such as using

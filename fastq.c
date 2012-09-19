@@ -176,6 +176,7 @@ void write_read_compressed(struct read *read, void *_fp, int phred_offset)
 
 const struct file_operations gzip_fops = {
 	.name       = "gzip",
+	.suffix     = ".gz",
 	.write_read = write_read_compressed,
 	.open_file  = xgzopen,
 	.close_file = xgzclose,
@@ -183,6 +184,7 @@ const struct file_operations gzip_fops = {
 
 const struct file_operations normal_fops = {
 	.name       = "text",
+	.suffix     = "",
 	.write_read = write_read_uncompressed,
 	.open_file  = xfopen,
 	.close_file = xfclose,
@@ -241,7 +243,6 @@ struct read_queue {
 	unsigned	  q_back;
 	struct read_set **q_reads;
 	size_t	          q_size;
-	unsigned long     q_counter;
 };
 
 static struct read_queue *new_read_queue(size_t size, bool full)
@@ -261,7 +262,6 @@ static struct read_queue *new_read_queue(size_t size, bool full)
 	q->q_front = 0;
 	q->q_back = size - 1;
 	q->q_size = size;
-	q->q_counter = 0;
 	return q;
 }
 

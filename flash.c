@@ -108,13 +108,13 @@ static void usage()
 "                          addition to the I/O threads.  Ignored if support\n"
 "                          for multiple threads was not compiled in.  Default:\n"
 "                          number of processors.  Note: if you need FLASH's\n"
-"                          output to appear deterministically or in the some\n"
+"                          output to appear deterministically or in the same\n"
 "                          order as the original reads, you must specify\n"
 "                          -t 1 (--threads=1).\n"
 "\n"
 "  -h, --help              Display this help and exit.\n"
 "\n"
-"  -v, --version           Display version."
+"  -v, --version           Display version.\n"
 	;
 	puts(usage_str);
 }
@@ -557,21 +557,21 @@ int main(int argc, char **argv)
 		switch (c) {
 		case 'm':
 			min_overlap = strtol(optarg, &tmp, 10);
-			if (tmp == optarg || min_overlap < 1)
+			if (tmp == optarg || *tmp || min_overlap < 1)
 				fatal_error("Minimum overlap must be a "
 					    "positive integer!  Please check "
 					    "option -m.");
 			break;
 		case 'M':
 			max_overlap = strtol(optarg, &tmp, 10);
-			if (tmp == optarg || max_overlap < 1)
+			if (tmp == optarg || *tmp || max_overlap < 1)
 				fatal_error("Maximum overlap must be "
 					    "a positive integer!  Please check "
 					    "option -M.");
 			break;
 		case 'x':
 			max_mismatch_density = strtod(optarg, &tmp);
-			if (tmp == optarg || max_mismatch_density < 0.0 || 
+			if (tmp == optarg || *tmp || max_mismatch_density < 0.0 || 
 			    max_mismatch_density > 1.0)
 			{
 				fatal_error("Max mismatch density must be a "
@@ -581,8 +581,8 @@ int main(int argc, char **argv)
 			break;
 		case 'p':
 			phred_offset = strtol(optarg, &tmp, 10);
-			if (tmp == optarg || phred_offset < 0 
-					  || phred_offset > 127) 
+			if (tmp == optarg || *tmp ||
+			    phred_offset < 0 || phred_offset > 127) 
 			{
 				fatal_error("Phred offset must be a in integer "
 					    "in the range [0, 127]!  Please "
@@ -596,21 +596,21 @@ int main(int argc, char **argv)
 			break;
 		case 'f':
 			fragment_len = strtol(optarg, &tmp, 10);
-			if (tmp == optarg || fragment_len <= 0)
+			if (tmp == optarg || *tmp || fragment_len <= 0)
 				fatal_error("Fragment length must be a "
 					    "positive integer!  Please check "
 					    "option -f.");
 			break;
 		case 's':
 			fragment_len_stddev = strtol(optarg, &tmp, 10);
-			if (tmp == optarg || fragment_len_stddev <= 0)
+			if (tmp == optarg || *tmp || fragment_len_stddev <= 0)
 				fatal_error("Fragment length standard deviation "
 					    "must be a positive integer!  "
 					    "Please check option -s.");
 			break;
 		case 'r':
 			read_len = strtol(optarg, &tmp, 10);
-			if (tmp == optarg || read_len <= 0)
+			if (tmp == optarg || *tmp || read_len <= 0)
 				fatal_error("Read length must be a "
 					    "positive integer!  Please check "
 					    "option -r.");
@@ -631,7 +631,7 @@ int main(int argc, char **argv)
 		case 't':
 			#ifdef MULTITHREADED
 			num_combiner_threads = strtol(optarg, &tmp, 10);
-			if (tmp == optarg || num_combiner_threads < 1) {
+			if (tmp == optarg || *tmp || num_combiner_threads < 1) {
 				fatal_error("Number of threads must be "
 					    "a positive integer!  Please "
 					    "check option -t.");
@@ -690,19 +690,13 @@ int main(int argc, char **argv)
 	if (to_stdout) {
 		out_combined_fp = fops->open_file("-", "w");
 	} else {
-		strcpy(suffix, ".extendedFrags.fastq");
-		if (fops == &gzip_fops)
-			strcat(suffix, ".gz");
+		sprintf(suffix, ".extendedFrags.fastq%s", fops->suffix);
 		out_combined_fp = fops->open_file(name_buf, "w");
 
-		strcpy(suffix, ".notCombined_1.fastq");
-		if (fops == &gzip_fops)
-			strcat(suffix, ".gz");
+		sprintf(suffix, ".notCombined_1.fastq%s", fops->suffix);
 		out_notcombined_fp_1 = fops->open_file(name_buf, "w");
 
-		strcpy(suffix, ".notCombined_2.fastq");
-		if (fops == &gzip_fops)
-			strcat(suffix, ".gz");
+		sprintf(suffix, ".notCombined_2.fastq%s", fops->suffix);
 		out_notcombined_fp_2 = fops->open_file(name_buf, "w");
 		*suffix = '\0';
 	}
@@ -717,9 +711,9 @@ int main(int argc, char **argv)
 		info(" ");
 		info("Output files:");
 		assert(!to_stdout);
-		info("    %s.extendedFrags.fastq", name_buf);
-		info("    %s.notCombined_1.fastq", name_buf);
-		info("    %s.notCombined_2.fastq", name_buf);
+		info("    %s.extendedFrags.fastq%s", name_buf, fops->suffix);
+		info("    %s.notCombined_1.fastq%s", name_buf, fops->suffix);
+		info("    %s.notCombined_2.fastq%s", name_buf, fops->suffix);
 		info("    %s.hist", name_buf);
 		info("    %s.histogram", name_buf);
 		info(" ");
@@ -799,7 +793,7 @@ int main(int argc, char **argv)
 					     NULL, combiner_thread_proc, p);
 			if (ret != 0) {
 				fatal_error_with_errno("Could not create "
-						       "worker thread #%d\n",
+						       "worker thread #%d",
 						       i + 1);
 			}
 		} else {
@@ -842,7 +836,9 @@ int main(int argc, char **argv)
 	init_read(&read_2);
 	init_read(&combined_read);
 
-	while (next_mate_pair(&read_1, &read_2, mates1_gzf, mates2_gzf, phred_offset)) {
+	while (next_mate_pair(&read_1, &read_2,
+			      mates1_gzf, mates2_gzf, phred_offset))
+	{
 		if (verbose && ++pair_no % 25000 == 0)
 			info("Processed %lu reads", pair_no);
 		if (combine_reads(&read_1, &read_2, &combined_read, min_overlap,
