@@ -4,6 +4,39 @@
 #include "fastq.h"
 #include "util.h"
 
+static ssize_t gzip_getline(gzFile gz_fp, char **lineptr, size_t *n)
+{
+	size_t offset = 0;
+	ssize_t ret;
+	if (!*lineptr) {
+		*n = 128;
+		*lineptr = (char*)xmalloc(*n);
+	}
+	while (1) {
+		char *line = *lineptr;
+		if (gzgets(gz_fp, line + offset, *n - offset)) {
+			ret = strlen(line);
+			if (line[ret - 1] == '\n')
+				return ret;
+		} else {
+			const char *error_str;
+			int errnum;
+
+			if (gzeof(gz_fp))
+				return -1;
+			error_str = gzerror(gz_fp, &errnum);
+			if (errnum == Z_ERRNO)
+				fatal_error_with_errno("Error reading reads file");
+			else
+				fatal_error("zlib error while reading reads "
+					    "file: %s", error_str);
+		}
+		offset = *n - 1;
+		*n *= 2;
+		*lineptr = xrealloc(line, *n);
+	}
+}
+
 /* 
  * Reads the next read from the FASTQ file @mates_gzf into the @read structure.
  *
@@ -12,70 +45,53 @@
  * The sequence is translated into only the characters A, C, G, T, and N, while
  * the quality values are re-scaled to start at 0.
  *
- * Returns true on success, false on EOF.  Aborts on read error.
+ * Returns true on success, false on EOF.  Aborts on read error, or if the data
+ * is invalid.
  */
 static bool next_read(struct read *read, gzFile mates_gzf, int phred_offset)
 {
-	int errnum;
-	const char *err_str;
+	ssize_t tag_len, seq_len, qual_len;
 
-	if (!gzgets(mates_gzf, read->tag, read->tag_bufsz))
-		goto out_eofok;
-	if (read->tag[read->tag_bufsz - 2] != '\0')
-		goto line_too_long;
+	tag_len = gzip_getline(mates_gzf, &read->tag, &read->tag_bufsz);
+	if (tag_len == -1)
+		return false;
 
-	if (!gzgets(mates_gzf, read->seq, read->read_bufsz))
-		goto out_eofnotok;
-	if (read->seq[read->read_bufsz - 2] != '\0')
-		goto line_too_long;
+	seq_len = gzip_getline(mates_gzf, &read->seq, &read->seq_bufsz);
+	if (seq_len == -1)
+		fatal_error("Unexpected EOF reading input file!");
 
-	if (!gzgets(mates_gzf, read->qual, read->read_bufsz))
-		goto out_eofnotok;
+	qual_len = gzip_getline(mates_gzf, &read->qual, &read->qual_bufsz);
+	if (qual_len == -1)
+		fatal_error("Unexpected EOF reading input file!");
+
 	if (read->qual[0] != '+')
-		fatal_error("Expected '+' character!");
-	if (read->qual[read->read_bufsz - 2] != '\0')
-		goto line_too_long;
+		fatal_error("Expected '+' character in FASTQ separator!");
 
-	if (!gzgets(mates_gzf, read->qual, read->read_bufsz))
-		goto out_eofnotok;
-	if (read->qual[read->read_bufsz - 2] != '\0')
-		goto line_too_long;
+	qual_len = gzip_getline(mates_gzf, &read->qual, &read->qual_bufsz);
+	if (qual_len == -1)
+		fatal_error("Unexpected EOF reading input file!");
 
-	read->seq_len = trim(read->seq);
-	read->tag_len = trim(read->tag);
+	seq_len = trim(read->seq, seq_len);
+	tag_len = trim(read->tag, tag_len);
+	qual_len = trim(read->qual, qual_len);
 
-	if ((int)trim(read->qual) != read->seq_len)
-		fatal_error("Qual string length not the same as sequence "
-			    "length!");
+	if (qual_len != seq_len)
+		fatal_error("Qual string length (%zu) not the same as sequence "
+			    "length (%zu)!", qual_len, seq_len);
 
-	for (int i = 0; i < read->seq_len; i++)
+	for (size_t i = 0; i < seq_len; i++)
 		read->seq[i] = canonical_ascii_char(read->seq[i]);
 
-	for (int i = 0; i < read->seq_len; i++) {
+	for (size_t i = 0; i < seq_len; i++) {
 		if (read->qual[i] < phred_offset) {
 			fatal_error("Qual string contains character under "
 				    "phred_offset = %d!", phred_offset);
 		}
 		read->qual[i] -= phred_offset;
 	}
+	read->seq_len = seq_len;
+	read->tag_len = tag_len;
 	return true;
-
-out_eofnotok:
-	if (gzeof(mates_gzf))
-		fatal_error("Unexpected EOF reading input file!");
-out_eofok:
-	err_str = gzerror(mates_gzf, &errnum);
-	if (errnum != Z_OK) {
-		if (errnum == Z_ERRNO)
-			fatal_error_with_errno("Error reading input file");
-		else if (errnum != Z_STREAM_END)
-			fatal_error("zlib error reading input file: %s",
-				    err_str);
-	}
-	return false;
-line_too_long:
-	fatal_error("Line too long!  Make sure you have specified the "
-		    "read length correctly.");
 }
 
 
@@ -156,29 +172,17 @@ void write_read_compressed(struct read *read, void *_fp, int phred_offset)
 	}
 }
 
-void init_read(struct read *read, int max_tag_len, int max_read_len)
-{
-	max_tag_len += 10;
-	max_read_len += 10;
-	read->tag_bufsz  = max_tag_len;
-	read->read_bufsz = max_read_len;
-	read->tag        = xmalloc(max_tag_len);
-	read->seq        = xmalloc(max_read_len);
-	read->qual       = xmalloc(max_read_len);
-
-	read->tag[max_tag_len - 2] = '\0';
-	read->seq[max_read_len - 2] = '\0';
-	read->qual[max_read_len - 2] = '\0';
-}
 
 
 const struct file_operations gzip_fops = {
+	.name       = "gzip",
 	.write_read = write_read_compressed,
 	.open_file  = xgzopen,
 	.close_file = xgzclose,
 };
 
 const struct file_operations normal_fops = {
+	.name       = "text",
 	.write_read = write_read_uncompressed,
 	.open_file  = xfopen,
 	.close_file = xfclose,
@@ -186,10 +190,10 @@ const struct file_operations normal_fops = {
 
 #ifdef MULTITHREADED
 
-static struct read *new_read(int max_tag_len, int max_read_len)
+static struct read *new_read()
 {
 	struct read *r = xmalloc(sizeof (struct read));
-	init_read(r, max_tag_len, max_read_len);
+	init_read(r);
 	return r;
 }
 
@@ -204,11 +208,11 @@ static void free_read(struct read *r)
 }
 
 
-static struct read_set *new_read_set(int max_tag_len, int max_read_len)
+static struct read_set *new_read_set()
 {
 	struct read_set *p = new_empty_read_set();
 	for (size_t i = 0; i < READS_PER_READ_SET; i++)
-		p->reads[i] = new_read(max_tag_len, max_read_len);
+		p->reads[i] = new_read();
 	return p;
 }
 
@@ -237,16 +241,16 @@ struct read_queue {
 	unsigned	  q_back;
 	struct read_set **q_reads;
 	size_t	          q_size;
+	unsigned long     q_counter;
 };
 
-static struct read_queue *new_read_queue(size_t size, bool full,
-					 int max_tag_len, int max_read_len)
+static struct read_queue *new_read_queue(size_t size, bool full)
 {
 	struct read_queue *q = xmalloc(sizeof(struct read_queue));
 	q->q_reads = xmalloc(size * sizeof(struct read_set*));
 	if (full)
 		for (size_t i = 0; i < size; i++)
-			q->q_reads[i] = new_read_set(max_tag_len, max_read_len);
+			q->q_reads[i] = new_read_set();
 	else
 		for (size_t i = 0; i < size; i++)
 			q->q_reads[i] = NULL;
@@ -257,6 +261,7 @@ static struct read_queue *new_read_queue(size_t size, bool full,
 	q->q_front = 0;
 	q->q_back = size - 1;
 	q->q_size = size;
+	q->q_counter = 0;
 	return q;
 }
 
@@ -316,13 +321,14 @@ struct reader_writer_params {
 	const struct file_operations *fops;
 	int phred_offset;
 	int num_combiner_threads;
+	bool verbose;
 };
 
 static struct reader_writer_params *
 new_reader_writer_params(size_t q_size, void *fp,
 			 const struct file_operations *fops, int phred_offset,
-			 int max_tag_len, int max_read_len,
-			 struct read_queue *free_q, int num_combiner_threads)
+			 struct read_queue *free_q, int num_combiner_threads,
+			 bool verbose)
 {
 	struct reader_writer_params *p;
 	
@@ -330,13 +336,13 @@ new_reader_writer_params(size_t q_size, void *fp,
 	if (free_q)
 		p->free_q = free_q;
 	else
-		p->free_q = new_read_queue(q_size, true, max_tag_len,
-					   max_read_len);
-	p->ready_q = new_read_queue(q_size, false, max_tag_len, max_read_len);
+		p->free_q = new_read_queue(q_size, true);
+	p->ready_q = new_read_queue(q_size, false);
 	p->fp = fp;
 	p->fops = fops;
 	p->phred_offset = phred_offset;
 	p->num_combiner_threads = num_combiner_threads;
+	p->verbose = verbose;
 	return p;
 }
 
@@ -361,15 +367,21 @@ static void *fastq_reader_thread_proc(void *p)
 	int phred_offset = params->phred_offset;
 	struct read_set *r;
 	unsigned i;
+	unsigned long pair_no = 0;
 
 	while (1) {
 		r = read_queue_get(free_q);
-		for (i = 0; i < READS_PER_READ_SET; i++)
+		for (i = 0; i < READS_PER_READ_SET; i++) {
 			if (!next_read(r->reads[i], fp, phred_offset))
 				goto out;
+			if (params->verbose && ++pair_no % 25000 == 0)
+				info("Processed %lu reads", pair_no);
+		}
 		read_queue_put(ready_q, r);
 	}
 out:
+	if (params->verbose)
+		info("Processed %lu reads", pair_no);
 	free_read(r->reads[i]);
 	r->reads[i] = NULL;
 	read_queue_put(ready_q, r);
@@ -433,16 +445,15 @@ out:
 /* Launches a FASTQ reader thread. */
 static void start_fastq_reader(void *fp, int phred_offset,
 			       struct thread *thread,
-			       int max_tag_len, int max_read_len,
 			       int num_combiner_threads,
-			       size_t queue_size)
+			       size_t queue_size,
+			       bool verbose)
 {
 	struct reader_writer_params *p;
 	int ret;
 	
 	p = new_reader_writer_params(queue_size, fp, NULL, phred_offset,
-				     max_tag_len, max_read_len, NULL,
-				     num_combiner_threads);
+				     NULL, num_combiner_threads, verbose);
 	thread->free_q = p->free_q;
 	thread->ready_q = p->ready_q;
 	ret = pthread_create(&thread->pthread, NULL,
@@ -455,7 +466,6 @@ static void start_fastq_reader(void *fp, int phred_offset,
 static void start_fastq_writer(void *fp, int phred_offset,
 			       const struct file_operations *fops,
 			       struct thread *thread,
-			       int max_tag_len, int max_read_len,
 			       struct read_queue *free_q, size_t queue_size,
 			       int num_combiner_threads)
 {
@@ -463,8 +473,7 @@ static void start_fastq_writer(void *fp, int phred_offset,
 	int ret;
 	
 	p = new_reader_writer_params(queue_size, fp, fops, phred_offset,
-				     max_tag_len, max_read_len, free_q,
-				     num_combiner_threads);
+				     free_q, num_combiner_threads, false);
 	thread->free_q = p->free_q;
 	thread->ready_q = p->ready_q;
 	ret = pthread_create(&thread->pthread, NULL,
@@ -479,35 +488,35 @@ void start_fastq_readers_and_writers(void *mates1_gzf, void *mates2_gzf,
 				     void *out_notcombined_fp_1,
 				     void *out_notcombined_fp_2,
 				     int phred_offset,
-				     int max_tag_len, int max_read_len,
 				     const struct file_operations *fops,
 				     struct threads *threads,
-				     int num_combiner_threads)
+				     int num_combiner_threads,
+				     bool verbose)
 {
 	size_t queue_size = num_combiner_threads * QUEUE_SIZE_PER_THREAD;
 
+	if (verbose)
+		info("Starting FASTQ readers and writer threads");
+
 	start_fastq_reader(mates1_gzf, phred_offset, &threads->reader_1,
-			   max_tag_len, max_read_len, num_combiner_threads,
-			   queue_size);
+			   num_combiner_threads, queue_size, verbose);
 
 	start_fastq_reader(mates2_gzf, phred_offset, &threads->reader_2,
-			   max_tag_len, max_read_len, num_combiner_threads,
-			   queue_size);
+			   num_combiner_threads, queue_size, false);
 
 	start_fastq_writer(out_combined_fp, phred_offset, fops,
-			   &threads->writer_combined, max_tag_len,
-			   max_read_len * 2, NULL, queue_size,
+			   &threads->writer_combined, NULL, queue_size,
 			   num_combiner_threads);
 
 	start_fastq_writer(out_notcombined_fp_1, phred_offset, fops,
 			   &threads->writer_uncombined_1,
-			   max_tag_len, max_read_len, threads->reader_1.free_q,
-			   queue_size, num_combiner_threads);
+			   threads->reader_1.free_q, queue_size,
+			   num_combiner_threads);
 
 	start_fastq_writer(out_notcombined_fp_2, phred_offset, fops,
 			   &threads->writer_uncombined_2,
-			   max_tag_len, max_read_len, threads->reader_2.free_q,
-			   queue_size, num_combiner_threads);
+			   threads->reader_2.free_q, queue_size,
+			   num_combiner_threads);
 }
 
 /* Waits for all the reader and writer threads to exit, then free the read

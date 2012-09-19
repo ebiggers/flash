@@ -7,7 +7,9 @@
 #define max(a,b) (((a) > (b)) ? (a) : (b))
 #define min(a,b) (((a) < (b)) ? (a) : (b))
 
+#define ARRAY_LEN(A) (sizeof(A) / sizeof((A)[0]))
 #define ZERO_ARRAY(A) (memset((A), 0, sizeof(A)))
+#define ZERO_OBJECT(obj) (memset((&obj), 0, sizeof(obj)))
 
 #ifdef __GNUC__
 #	if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4)
@@ -33,6 +35,7 @@ typedef void (*close_file_t)(void *);
 typedef void (*write_read_t)(struct read *read, void *fp, int phred_offset);
 
 struct file_operations {
+	const char *name;
 	const open_file_t  open_file;
 	const close_file_t close_file;
 	const write_read_t write_read;
@@ -46,7 +49,9 @@ extern void fatal_error(const char *msg, ...) \
 extern void fatal_error_with_errno(const char *msg, ...) \
 			__noreturn __cold __format(printf, 1, 2);
 extern void warning(const char *msg, ...) __cold __format(printf, 1, 2);
+extern void info(const char *msg, ...) __cold __format(printf, 1, 2);
 extern void *xmalloc(size_t size) __cold;
+extern void *xrealloc(void *ptr, size_t size) __cold;
 extern unsigned get_default_num_threads() __cold;
 extern void mkdir_p(const char *dir) __cold;
 
@@ -58,9 +63,8 @@ extern void xgzclose(void *fp) __cold;
 
 /* Remove all whitespace from the end of the line/string.  Return the length of
  * the trimmed string. */
-static inline size_t trim(char *s)
+static inline size_t trim(char *s, size_t len)
 {
-	size_t len = strlen(s);
 	while (len != 0 && isspace(s[len - 1]))
 		s[--len] = '\0';
 	return len;

@@ -36,13 +36,15 @@ const char complement_tab[] = {
 	['N'] = 'N',
 };
 
+#define PROGRAM_TAG "[FLASH] "
+
 /* Prints an error message and exits the program with failure status. */
 void fatal_error(const char *msg, ...)
 {
 	va_list va;
 	va_start(va, msg);
 	fflush(stdout);
-	fputs("ERROR: ", stderr);
+	fputs(PROGRAM_TAG "ERROR: ", stderr);
 	vfprintf(stderr, msg, va);
 	putc('\n', stderr);
 	va_end(va);
@@ -54,7 +56,7 @@ void fatal_error_with_errno(const char *msg, ...)
 	va_list va;
 	va_start(va, msg);
 	fflush(stdout);
-	fputs("ERROR: ", stderr);
+	fputs(PROGRAM_TAG "ERROR: ", stderr);
 	vfprintf(stderr, msg, va);
 	fprintf(stderr, ": %s\n", strerror(errno));
 	va_end(va);
@@ -66,9 +68,20 @@ void warning(const char *msg, ...)
 {
 	va_list va;
 	va_start(va, msg);
-	fputs("WARNING: ", stderr);
+	fputs(PROGRAM_TAG "WARNING: ", stderr);
 	fprintf(stderr, msg, va);
 	putc('\n', stderr);
+	va_end(va);
+}
+
+/* Prints an informational message. */
+void info(const char *msg, ...)
+{
+	va_list va;
+	va_start(va, msg);
+	fputs(PROGRAM_TAG, stdout);
+	vprintf(msg, va);
+	putchar('\n');
 	va_end(va);
 }
 
@@ -94,6 +107,16 @@ void *xmalloc(size_t size)
 	void *p = malloc(size);
 	if (!p) {
 		fatal_error("Out of memory: tried to allocate %lu bytes",
+			     size);
+	}
+	return p;
+}
+
+void *xrealloc(void *ptr, size_t size)
+{
+	void *p = realloc(ptr, size);
+	if (!p) {
+		fatal_error("Out of memory: tried to reallocate %lu bytes",
 			     size);
 	}
 	return p;

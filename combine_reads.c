@@ -116,10 +116,9 @@ static int pair_align(const struct read *read_1, const struct read *read_2,
 		return best_position;
 }
 
-int combine_reads(const struct read *read_1, const struct read *read_2,
-		  char combined_seq[], char combined_qual[],
-		  int min_overlap, int max_overlap, 
-		  float max_mismatch_density)
+bool combine_reads(const struct read *read_1, const struct read *read_2,
+		   struct read *combined_read, int min_overlap,
+		   int max_overlap, float max_mismatch_density)
 {
 	/* Starting position of the alignment in the first read, 0-based. */
 	int overlap_begin;
@@ -138,20 +137,34 @@ int combine_reads(const struct read *read_1, const struct read *read_2,
 	const char * restrict seq_2 = read_2->seq;
 	const char * restrict qual_1 = read_1->qual;
 	const char * restrict qual_2 = read_2->qual;
+	char * restrict combined_seq;
+	char * restrict combined_qual;
 
 	/* Do the alignment. */
 	overlap_begin = pair_align(read_1, read_2, min_overlap, max_overlap, 
 				   max_mismatch_density);
 
-	/* If no alignment found, return combined read length of 0. */
+	/* If no alignment found, return false */
 	if (overlap_begin < 0)
-		return 0;
+		return false;
 
-	/* Fill in the combined read (@combined_seq and @combined_qual). */
+	/* Fill in the combined read. */
 
 	overlap_len = read_1->seq_len - overlap_begin;
 	remaining_len = read_2->seq_len - overlap_len;
 	combined_seq_len = read_1->seq_len + remaining_len;
+
+	if (combined_read->seq_bufsz < combined_seq_len) {
+		combined_read->seq = xrealloc(combined_read->seq,
+					      combined_seq_len);
+		combined_read->qual = xrealloc(combined_read->qual,
+					       combined_seq_len);
+		combined_read->seq_bufsz = combined_seq_len;
+	}
+
+	combined_seq = combined_read->seq;
+	combined_qual = combined_read->qual;
+	combined_read->seq_len = combined_seq_len;
 
 	/* Copy the beginning of the first read. */
 	while (overlap_begin--) {
@@ -204,9 +217,5 @@ int combine_reads(const struct read *read_1, const struct read *read_2,
 		*combined_seq++ = *seq_2++;
 		*combined_qual++ = *qual_2++;
 	}
-
-	/* NULL-terminate the combined read and return its length. */
-	*combined_seq = '\0';
-	*combined_qual = '\0';
-	return combined_seq_len;
+	return true;
 }

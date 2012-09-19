@@ -9,7 +9,7 @@
 #include "fastq.h"
 #include "util.h"
 
-#define MAX_TAG_LEN 1024
+#define VERSION_STR "v1.2"
 
 static void usage()
 {
@@ -70,8 +70,6 @@ static void usage()
 "                          platforms, or 64, which corresponds to the\n"
 "                          earlier Illumina platforms.  Default: 33.\n"
 "\n"
-"  -r, --read-len=LEN      Average read length.  Default: 100.\n"
-"\n"
 "  -f, --fragment-len=LEN  Average fragment length.  Default: 180.\n"
 "\n"
 "  -s, --fragment-len-stddev=LEN\n"
@@ -117,7 +115,7 @@ static void usage_short()
 
 static void version()
 {
-	puts("flash v1.2");
+	puts("flash " VERSION_STR);
 }
 
 static const char *optstring = "m:M:x:p:r:f:s:o:d:czt:hv";
@@ -126,7 +124,6 @@ static const struct option longopts[] = {
 	{"max-overlap",          required_argument,  NULL, 'M'}, 
 	{"max-mismatch-density", required_argument,  NULL, 'x'}, 
 	{"phred-offset",         required_argument,  NULL, 'p'}, 
-	{"read-len",             required_argument,  NULL, 'r'}, 
 	{"fragment-len",         required_argument,  NULL, 'f'}, 
 	{"fragment-len-stddev",  required_argument,  NULL, 's'}, 
 	{"output-prefix",        required_argument,  NULL, 'o'}, 
@@ -134,11 +131,22 @@ static const struct option longopts[] = {
 	{"to-stdout",            no_argument,        NULL, 'c'},
 	{"compress",             no_argument,        NULL, 'z'},
 	{"threads",              required_argument,  NULL, 't'},
+	{"quiet",                no_argument,	     NULL, 'q'}, 
 	{"help",                 no_argument,	     NULL, 'h'}, 
 	{"version",              no_argument,	     NULL, 'v'}, 
 	{NULL, 0, NULL, 0}
 };
 
+
+static void copy_tag(struct read *to, const struct read *from)
+{
+	if (to->tag_bufsz < from->tag_len) {
+		to->tag = xrealloc(to->tag, from->tag_len);
+		to->tag_bufsz = from->tag_len;
+	}
+	to->tag_len = from->tag_len;
+	memcpy(to->tag, from->tag, from->tag_len);
+}
 
 /* 
  * Given the tags of the two reads, find the tag that will be given to the
@@ -146,18 +154,17 @@ static const struct option longopts[] = {
  *
  * We need to strip off what trails the '/' (e.g. "/1" and "/2"), unless there
  * is a "barcode" beginning with the '#' character, which is kept.
- *
- * Instead of copying the tag, we transform @tag_1 into the combined tag.
  */
-static void get_combined_tag(char *tag_1, int *tag_1_len, const char *tag_2,
-			     int tag_2_len)
+static void get_combined_tag(const struct read *read_1,
+			     const struct read *read_2,
+			     struct read *combined_read)
 {
-	int len = *tag_1_len;
-
-	if (len != tag_2_len) /* Tags are the same; don't change it. */
-		return;
-
-	for (char *p = &tag_1[len - 1]; p >= tag_1; p--) {
+	char *p;
+	copy_tag(combined_read, read_1);
+	for (p = &combined_read->tag[combined_read->tag_len - 1];
+	     p >= combined_read->tag;
+	     p--)
+	{
 		if (*p == '/') {
 			/* Tags are different, and there's a forward slash in
 			 * the first tag.  Remove everything after the forward
@@ -169,19 +176,110 @@ static void get_combined_tag(char *tag_1, int *tag_1_len, const char *tag_2,
 				} while (*(++p + 2) != '\0');
 			}
 			*p = '\0';
-			*tag_1_len = p - tag_1;
-			return;
+			combined_read->tag_len = p - combined_read->tag;
+			break;
 		}
 	}
 }
 
-static void write_hist_file(const char *hist_file, const size_t hist[],
-			    int first_nonzero_idx, int last_nonzero_idx)
+struct histogram {
+	unsigned long *array;
+	size_t len;
+};
+
+static void hist_init(struct histogram *hist)
+{
+	hist->array = NULL;
+	hist->len = 0;
+}
+
+static void hist_destroy(struct histogram *hist)
+{
+	free(hist->array);
+}
+
+static void hist_add(struct histogram *hist, unsigned long idx,
+		     unsigned long amount)
+{
+	unsigned long *array = hist->array;
+	size_t old_len = hist->len;
+	if (idx >= old_len) {
+		size_t new_len = idx + 1;
+		array = xrealloc(array, new_len * sizeof(array[0]));
+		memset(&array[old_len], 0,
+		       (new_len - old_len) * sizeof(array[0]));
+		hist->len = new_len;
+		hist->array = array;
+	}
+	array[idx]++;
+}
+
+static void hist_inc(struct histogram *hist, unsigned long idx)
+{
+	hist_add(hist, idx, 1);
+}
+
+#ifdef MULTITHREADED
+static void hist_combine(struct histogram *hist, const struct histogram *other)
+{
+	for (size_t i = 0; i < other->len; i++)
+		hist_add(hist, i, other->array[i]);
+}
+#endif
+
+static unsigned long hist_total_zero(const struct histogram *hist)
+{
+	if (hist->len == 0)
+		return 0;
+	else
+		return hist->array[0];
+}
+
+static unsigned long hist_count_at(const struct histogram *hist,
+				   unsigned long idx)
+{
+	assert(idx < hist->len);
+	return hist->array[idx];
+}
+
+static unsigned long hist_total(const struct histogram *hist)
+{
+	unsigned long total = 0;
+	for (size_t i = 0; i < hist->len; i++)
+		total += hist->array[i];
+	return total;
+}
+
+static void hist_stats(const struct histogram *hist,
+		       unsigned long *max_freq_ret,
+		       long *first_nonzero_idx_ret,
+		       long *last_nonzero_idx_ret)
+{
+	*max_freq_ret = 0;
+	*first_nonzero_idx_ret = -1;
+	*last_nonzero_idx_ret = -2;
+	for (size_t i = 1; i < hist->len; i++) {
+		unsigned long freq = hist->array[i];
+		if (freq != 0) {
+			if (*first_nonzero_idx_ret == -1)
+				*first_nonzero_idx_ret = i;
+			*last_nonzero_idx_ret = i;
+			if (freq > *max_freq_ret)
+				*max_freq_ret = freq;
+		}
+	}
+}
+
+
+static void write_hist_file(const char *hist_file,
+			    const struct histogram *hist,
+			    long first_nonzero_idx, long last_nonzero_idx)
 {
 	FILE *fp = xfopen(hist_file, "w");
-	for (int i = first_nonzero_idx; i <= last_nonzero_idx; i++) {
-		if (hist[i] != 0) {
-			if (fprintf(fp, "%d\t%zu\n", i, hist[i]) < 0) {
+	for (long i = first_nonzero_idx; i <= last_nonzero_idx; i++) {
+		unsigned long count = hist_count_at(hist, i);
+		if (count != 0) {
+			if (fprintf(fp, "%ld\t%zu\n", i, count) < 0) {
 				fatal_error_with_errno("Error writing to "
 						       "the file \"%s\"",
 						       hist_file);
@@ -192,18 +290,20 @@ static void write_hist_file(const char *hist_file, const size_t hist[],
 }
 
 static void write_histogram_file(const char *histogram_file, 
-				 const size_t hist[], int first_nonzero_idx,
-				 int last_nonzero_idx, size_t max_freq)
+				 const struct histogram *hist,
+				 long first_nonzero_idx,
+				 long last_nonzero_idx,
+				 unsigned long max_freq)
 {
 	const double max_num_asterisks = 72;
 	double scale = max_num_asterisks / (double)max_freq;
 
 	FILE *fp = xfopen(histogram_file, "w");
 
-	for (int i = first_nonzero_idx; i <= last_nonzero_idx; i++) {
-		if (fprintf(fp, "%d\t", i) < 0)
+	for (long i = first_nonzero_idx; i <= last_nonzero_idx; i++) {
+		if (fprintf(fp, "%ld\t", i) < 0)
 			goto write_error;
-		size_t num_asterisks = (size_t)(scale * (double)hist[i]);
+		size_t num_asterisks = (size_t)(scale * (double)hist_count_at(hist, i));
 		while (num_asterisks--)
 			if (fputc('*', fp) == EOF)
 				goto write_error;
@@ -229,7 +329,7 @@ struct common_combiner_thread_params {
 };
 
 struct combiner_thread_params {
-	size_t *combined_read_len_hist;
+	struct histogram *combined_read_len_hist;
 	struct common_combiner_thread_params *common;
 };
 
@@ -239,7 +339,7 @@ static void *combiner_thread_proc(void *__params)
 {
 	struct combiner_thread_params *params = __params;
 
-	size_t *combined_read_len_hist = params->combined_read_len_hist;
+	struct histogram *combined_read_len_hist = params->combined_read_len_hist;
 	struct threads *threads = params->common->threads;
 	int min_overlap = params->common->min_overlap;
 	int max_overlap = params->common->max_overlap;
@@ -258,11 +358,12 @@ static void *combiner_thread_proc(void *__params)
 	unsigned to_writer_filled = 0;
 	struct read_set *combined_read_set = read_queue_get(threads->writer_combined.free_q);
 	unsigned combined_read_filled = 0;
-	size_t combined_len;
 	struct read *combined_read;
 	struct read *read_1;
 	struct read *read_2;
 	unsigned i;
+	bool combination_successful;
+
 	while (1) { /* Process each read set, retrieved from the readers' ready queues */
 
 		/* To make sure the read pairs are made correctly (i.e. always
@@ -311,30 +412,16 @@ static void *combiner_thread_proc(void *__params)
 			combined_read = combined_read_set->reads[combined_read_filled];
 
 			/* Try combining the reads. */
-			combined_len = combine_reads(read_1, read_2,
-						     combined_read->seq, 
-						     combined_read->qual,
-						     min_overlap, max_overlap,
-						     max_mismatch_density);
-			if (combined_len != 0) {
+			combination_successful = combine_reads(read_1, read_2,
+							       combined_read,
+							       min_overlap,
+							       max_overlap,
+							       max_mismatch_density);
+			if (combination_successful) {
 				/* Combination was successful. */
 
-				/* Swap the tags of the read_1 and the
-				 * combined_read so that we can set the
-				 * combined_read tag by transforming read_1's
-				 * tag in-place. 
-				 *
-				 * Note: this should only be done if the
-				 * tag_bufsz's of the reads are the same. */
-				char *tmp = combined_read->tag;
-				combined_read->tag = read_1->tag;
-				combined_read->tag_len = read_1->tag_len;
-				combined_read->seq_len = combined_len;
-				read_1->tag = tmp;
-				get_combined_tag(combined_read->tag,
-						 &combined_read->tag_len,
-						 read_2->tag,
-						 read_2->tag_len);
+				get_combined_tag(read_1, read_2, combined_read);
+
 				if (++combined_read_filled == READS_PER_READ_SET) {
 					read_queue_put(threads->writer_combined.ready_q,
 						       combined_read_set);
@@ -342,9 +429,13 @@ static void *combiner_thread_proc(void *__params)
 							threads->writer_combined.free_q);
 					combined_read_filled = 0;
 				}
-			} 
+				hist_inc(combined_read_len_hist,
+					 combined_read->seq_len);
+			} else {
+				hist_inc(combined_read_len_hist, 0);
+			}
 
-			if (combined_len != 0 || to_stdout) {
+			if (!combination_successful || to_stdout) {
 				/* We do not need to write the uncombined reads,
 				 * either because the reads were combined, or we
 				 * are writing to stdout.  So put them back in
@@ -380,7 +471,6 @@ static void *combiner_thread_proc(void *__params)
 					to_writer_2 = empty_read_set_2;
 				}
 			}
-			combined_read_len_hist[combined_len]++;
 		}
 	}
 no_more_reads:
@@ -422,8 +512,7 @@ no_more_reads:
 
 int main(int argc, char **argv)
 {
-	int max_overlap            = 70;
-	bool max_overlap_specified = false;
+	int max_overlap            = 0;
 	int min_overlap            = 10;
 	float max_mismatch_density = 0.25;
 	int phred_offset           = 33;
@@ -432,7 +521,8 @@ int main(int argc, char **argv)
 	int fragment_len_stddev    = 20;
 	const char *prefix         = "out";
 	const char *output_dir     = ".";
-	bool to_stdout		   = false;
+	bool to_stdout             = false;
+	bool verbose               = true;
 	gzFile mates1_gzf, mates2_gzf;
 	void *out_combined_fp;
 	void *out_notcombined_fp_1 = NULL;
@@ -455,7 +545,6 @@ int main(int argc, char **argv)
 			break;
 		case 'M':
 			max_overlap = strtol(optarg, &tmp, 10);
-			max_overlap_specified = true;
 			if (tmp == optarg || max_overlap < 1)
 				fatal_error("Maximum overlap must be "
 					    "a positive integer!  Please check "
@@ -486,12 +575,6 @@ int main(int argc, char **argv)
 				        "(for Sanger and later Illumina data).");
 			}
 			break;
-		case 'r':
-			read_len = strtol(optarg, &tmp, 10);
-			if (tmp == optarg || read_len <= 0)
-				fatal_error("Read length must be a positive "
-					    "integer!  Please check option -r.");
-			break;
 		case 'f':
 			fragment_len = strtol(optarg, &tmp, 10);
 			if (tmp == optarg || fragment_len <= 0)
@@ -514,6 +597,7 @@ int main(int argc, char **argv)
 			break;
 		case 'c':
 			to_stdout = true;
+			verbose = false;
 			break;
 		case 'z':
 			fops = &gzip_fops;
@@ -531,6 +615,9 @@ int main(int argc, char **argv)
 				"option.");
 			#endif
 			break;
+		case 'q':
+			verbose = false;
+			break;
 		case 'v':
 			version();
 			return 0;
@@ -545,12 +632,9 @@ int main(int argc, char **argv)
 
 
 
-	if (!max_overlap_specified && ((read_len != 100) || 
-				      (fragment_len != 180) || 
-				      (fragment_len_stddev != 20))) {
+	if (max_overlap == 0)
 		max_overlap = (int)(2 * read_len - fragment_len +
 				    2.5 * fragment_len_stddev);
-	}
 
 #ifdef MULTITHREADED
 	if (num_combiner_threads == 0)
@@ -594,6 +678,35 @@ int main(int argc, char **argv)
 		if (fops == &gzip_fops)
 			strcat(suffix, ".gz");
 		out_notcombined_fp_2 = fops->open_file(name_buf, "w");
+		*suffix = '\0';
+	}
+
+	if (verbose) {
+		info("Starting FLASH " VERSION_STR);
+		info("Fast Length Adjustment of SHort Reads");
+		info(" ");
+		info("Input files:");
+		info("    %s", argv[0]);
+		info("    %s", argv[1]);
+		info(" ");
+		info("Output files:");
+		assert(!to_stdout);
+		info("    %s.extendedFrags.fastq", name_buf);
+		info("    %s.notCombined_1.fastq", name_buf);
+		info("    %s.notCombined_2.fastq", name_buf);
+		info("    %s.hist", name_buf);
+		info("    %s.histogram", name_buf);
+		info(" ");
+		info("Parameters:");
+		info("    Min overlap:          %d", min_overlap);
+		info("    Max overlap:          %d", max_overlap);
+		info("    Phred offset:         %d", phred_offset);
+	#ifdef MULTITHREADED
+		info("    Combiner threads:     %d", num_combiner_threads);
+	#endif
+		info("    Max mismatch density: %f", max_mismatch_density);
+		info("    Output format:        %s", fops->name);
+		info(" ");
 	}
 
 
@@ -624,17 +737,19 @@ int main(int argc, char **argv)
 	 *
 	 * Here, there is a copy of the histogram for each thread, and they are
 	 * combined after all the combiner threads are done. */
-	size_t _combined_read_len_hist[num_combiner_threads][read_len * 2];
-	ZERO_ARRAY(_combined_read_len_hist);
-	size_t *combined_read_len_hist = _combined_read_len_hist[num_combiner_threads - 1];
+	struct histogram combined_read_len_hists[num_combiner_threads];
+	struct histogram *combined_read_len_hist =
+			&combined_read_len_hists[num_combiner_threads - 1];
+	for (size_t i = 0; i < ARRAY_LEN(combined_read_len_hists); i++)
+		hist_init(&combined_read_len_hists[i]);
 
 	struct threads threads;
 	start_fastq_readers_and_writers(mates1_gzf, mates2_gzf, out_combined_fp,
 					out_notcombined_fp_1,
 					out_notcombined_fp_2, phred_offset,
-					MAX_TAG_LEN, read_len,
 					fops, &threads,
-					num_combiner_threads);
+					num_combiner_threads,
+					verbose);
 	struct common_combiner_thread_params common = {
 		.threads              = &threads,
 		.min_overlap          = min_overlap,
@@ -651,7 +766,7 @@ int main(int argc, char **argv)
 		int ret;
 		p = xmalloc(sizeof(struct combiner_thread_params));
 		p->common = &common;
-		p->combined_read_len_hist = _combined_read_len_hist[i];
+		p->combined_read_len_hist = &combined_read_len_hists[i];
 		if (i < num_combiner_threads - 1) {
 			ret = pthread_create(&other_combiner_threads[i],
 					     NULL, combiner_thread_proc, p);
@@ -669,8 +784,9 @@ int main(int argc, char **argv)
 			fatal_error_with_errno("Failed to join worker thread #%d",
 					       i + 1);
 		}
-		for (unsigned j = 0; j < read_len * 2; j++)
-			combined_read_len_hist[j] += _combined_read_len_hist[i][j];
+		hist_combine(combined_read_len_hist,
+			     &combined_read_len_hists[i]);
+		hist_destroy(&combined_read_len_hists[i]);
 	}
 	pthread_mutex_destroy(&common.unqueue_lock);
 	pthread_mutex_destroy(&common.queue_lock);
@@ -680,55 +796,57 @@ int main(int argc, char **argv)
 	/* Histogram of how many combined reads have a given length.
 	 *
 	 * The zero index slot counts how many reads were not combined. */
-	size_t combined_read_len_hist[read_len * 2];
-	ZERO_ARRAY(combined_read_len_hist);
+	struct histogram _combined_read_len_hist;
+	struct histogram *combined_read_len_hist = &_combined_read_len_hist;
+
+	hist_init(combined_read_len_hist);
+
+	unsigned long pair_no = 0;
 
 	/* The single-threaded code is much simpler than the multi-threaded
 	 * code; just have two `struct read's to keep using for the input reads,
 	 * and another `struct read' to use for combined sequence.  The `struct
 	 * read_queue' and `struct read_set' are not used at all. */
 
-	struct read _read_1;
-	struct read _read_2;
-	struct read *read_1 = &_read_1;
-	struct read *read_2 = &_read_2;
-	char combined_seq[read_len * 2 + 1];
-	char combined_qual[read_len * 2 + 1];
+	struct read read_1;
+	struct read read_2;
 	struct read combined_read;
 
-	/* Allocate enough memory for two reads. */
-	init_read(read_1, MAX_TAG_LEN, read_len);
-	init_read(read_2, MAX_TAG_LEN, read_len);
+	init_read(&read_1);
+	init_read(&read_2);
+	init_read(&combined_read);
 
 	/* Set up a `struct read' that will serve as the combined read that will
 	 * be written to the output file when needed. */
-	combined_read.seq = combined_seq;
-	combined_read.qual = combined_qual;
-	combined_read.tag = read_1->tag;
-	while (next_mate_pair(read_1, read_2, mates1_gzf, mates2_gzf, phred_offset)) {
-		size_t combined_len;
-
-		combined_len = combine_reads(read_1, read_2, combined_seq, 
-					     combined_qual, min_overlap, 
-					     max_overlap, max_mismatch_density);
-		if (combined_len != 0) {
+	while (next_mate_pair(&read_1, &read_2, mates1_gzf, mates2_gzf, phred_offset)) {
+		if (verbose && ++pair_no % 25000 == 0)
+			info("Processed %lu reads", pair_no);
+		if (combine_reads(&read_1, &read_2, &combined_read, min_overlap,
+				  max_overlap, max_mismatch_density))
+		{
 			/* Combination was successful. */
-			combined_read.tag_len = read_1->tag_len;
-			combined_read.seq_len = combined_len;
-			get_combined_tag(combined_read.tag, &combined_read.tag_len,
-					 read_2->tag, read_2->tag_len);
+			get_combined_tag(&read_1, &read_2, &combined_read);
 			fops->write_read(&combined_read, out_combined_fp, 
 				   	 phred_offset);
-		} else if (!to_stdout) {
+			hist_inc(combined_read_len_hist,
+				 combined_read.seq_len);
+		} else {
 			/* Combination was unsuccessful. */
-			fops->write_read(read_1, out_notcombined_fp_1, 
-				   phred_offset);
-			reverse_complement(read_2->seq, read_2->seq_len);
-			reverse(read_2->qual, read_2->seq_len);
-			fops->write_read(read_2, out_notcombined_fp_2, 
-				   	 phred_offset);
+			if (!to_stdout) {
+				fops->write_read(&read_1, out_notcombined_fp_1, 
+						 phred_offset);
+				reverse_complement(read_2.seq,
+						   read_2.seq_len);
+				reverse(read_2.qual, read_2.seq_len);
+				fops->write_read(&read_2, out_notcombined_fp_2, 
+						 phred_offset);
+			}
+			hist_inc(combined_read_len_hist, 0);
 		}
-		combined_read_len_hist[combined_len]++;
+	}
+	if (verbose) {
+		info("Processed %lu reads", pair_no);
+		info("Closing input and output FASTQ files");
 	}
 	gzclose(mates1_gzf);
 	gzclose(mates2_gzf);
@@ -736,35 +854,40 @@ int main(int argc, char **argv)
 	fops->close_file(out_notcombined_fp_1);
 	fops->close_file(out_notcombined_fp_2);
 #endif /* !MULTITHREADED */
-	
+
 
 	/* The remainder is the same regardless of whether we are compiling for
-	 * multiple threads or not (we are down to one thread at this point
+	 * multiple threads or not (and we are down to one thread at this point
 	 * anyway). */
-	if (!to_stdout) {
-		/* From the histogram table @combined_read_len_hist, compute:
-		 * - The lowest length for which there exists a combined read of
-		 *   that length.
-		 * - The highest length for which there exists a combined read
-		 *   of that length.
-		 * - The maximum frequency of a read length in the set of
-		 *   combined reads.
-		 */
-		size_t max_freq = 0;
-		int first_nonzero_idx = -1;
-		int last_nonzero_idx = 0;
-		for (unsigned i = 1; i < read_len * 2; i++) {
-			if (combined_read_len_hist[i] != 0) {
-				if (first_nonzero_idx == -1)
-					first_nonzero_idx = i;
-				last_nonzero_idx = i;
-			}
-			if (combined_read_len_hist[i] > max_freq)
-				max_freq = combined_read_len_hist[i];
-		}
+	
+	if (verbose) {
+		unsigned long num_combined_reads;
+		unsigned long num_uncombined_reads;
+		unsigned long num_total_reads;
+		num_uncombined_reads = hist_total_zero(combined_read_len_hist);
+		num_total_reads = hist_total(combined_read_len_hist);
+		num_combined_reads = num_total_reads - num_uncombined_reads;
+		info(" ");
+		info("Read combination completed!");
+		info("    Total reads:      %lu", num_total_reads);
+		info("    Combined reads:   %lu", num_combined_reads);
+		info("    Uncombined reads: %lu", num_uncombined_reads);
+		info("    Percent combined: %.2f%%", (num_total_reads) ?
+			(double)num_combined_reads * 100 / num_total_reads : 0);
+		info(" ");
 
-		if (first_nonzero_idx == -1)
-			last_nonzero_idx = -2;
+	}
+
+	if (!to_stdout) {
+		unsigned long max_freq;
+		long first_nonzero_idx;
+		long last_nonzero_idx;
+
+		if (verbose)
+			info("Writing histogram files");
+
+		hist_stats(combined_read_len_hist,
+			   &max_freq, &first_nonzero_idx, &last_nonzero_idx);
 
 		/* Write the raw numbers of the combined read length histogram
 		 * to the PREFIX.hist file. */
@@ -778,5 +901,9 @@ int main(int argc, char **argv)
 				     first_nonzero_idx, last_nonzero_idx, 
 				     max_freq);
 	}
+	hist_destroy(combined_read_len_hist);
+
+	if (verbose)
+		info("FLASH " VERSION_STR " complete.");
 	return 0;
 }
