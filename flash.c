@@ -129,13 +129,13 @@ static void version()
 	puts("flash " VERSION_STR);
 }
 
-static const char *optstring = "m:M:x:p:r:f:s:o:d:czt:hv";
+static const char *optstring = "m:M:x:p:r:f:s:o:d:czt:qhv";
 static const struct option longopts[] = {
 	{"min-overlap",          required_argument,  NULL, 'm'}, 
 	{"max-overlap",          required_argument,  NULL, 'M'}, 
 	{"max-mismatch-density", required_argument,  NULL, 'x'}, 
 	{"phred-offset",         required_argument,  NULL, 'p'}, 
-	{"read_len",		 required_argument,  NULL, 's'}, 
+	{"read_len",		 required_argument,  NULL, 'r'}, 
 	{"fragment-len",         required_argument,  NULL, 'f'}, 
 	{"fragment-len-stddev",  required_argument,  NULL, 's'}, 
 	{"output-prefix",        required_argument,  NULL, 'o'}, 
@@ -161,11 +161,12 @@ static void copy_tag(struct read *to, const struct read *from)
 }
 
 /* 
- * Given the tags of the two reads, find the tag that will be given to the
- * combined read.
+ * Given the FASTQ tags of two paired-end reads, find the FASTQ tag to give to
+ * the combined read.
  *
- * We need to strip off what trails the '/' (e.g. "/1" and "/2"), unless there
- * is a "barcode" beginning with the '#' character, which is kept.
+ * This is done by stripping off the characters trailing the '/' (e.g. "/1" and
+ * "/2"), unless there is a "barcode" beginning with the '#' character, which is
+ * kept.
  */
 static void get_combined_tag(const struct read *read_1,
 			     const struct read *read_2,
@@ -194,6 +195,8 @@ static void get_combined_tag(const struct read *read_1,
 	}
 }
 
+/* This is just a dynamic array used as a histogram.  It's needed to count the
+ * frequencies of the lengths of the combined reads. */
 struct histogram {
 	unsigned long *array;
 	size_t len;
@@ -239,19 +242,19 @@ static void hist_combine(struct histogram *hist, const struct histogram *other)
 }
 #endif
 
+static unsigned long hist_count_at(const struct histogram *hist,
+				   unsigned long idx)
+{
+	assert(idx < hist->len);
+	return hist->array[idx];
+}
+
 static unsigned long hist_total_zero(const struct histogram *hist)
 {
 	if (hist->len == 0)
 		return 0;
 	else
 		return hist->array[0];
-}
-
-static unsigned long hist_count_at(const struct histogram *hist,
-				   unsigned long idx)
-{
-	assert(idx < hist->len);
-	return hist->array[idx];
 }
 
 static unsigned long hist_total(const struct histogram *hist)
@@ -732,8 +735,8 @@ int main(int argc, char **argv)
 	/* 
 	 * We wish to do the following:
 	 *
-	 * "Go through each mate pair in the input file.  Determine if it can be
-	 * combined, given the input parameters to the program.  If it can,
+	 * "Go through each mate pair in the input files.  Determine if it can
+	 * be combined, given the input parameters to the program.  If it can,
 	 * write the combined read to the PREFIX.extendedFrags.fastq file.
 	 * Otherwise, write the reads in the mate pair to the
 	 * PREFIX.notCombined_1.fastq and PREFIX.notCombined_2.fastq files.  Or,
@@ -750,6 +753,7 @@ int main(int argc, char **argv)
 	 */
 
 #ifdef MULTITHREADED
+
 	/* Histogram of how many combined reads have a given length.
 	 *
 	 * The zero index slot counts how many reads were not combined.
@@ -824,8 +828,7 @@ int main(int argc, char **argv)
 
 	/* The single-threaded code is much simpler than the multi-threaded
 	 * code; just have two `struct read's to keep using for the input reads,
-	 * and another `struct read' to use for combined sequence.  The `struct
-	 * read_queue' and `struct read_set' are not used at all. */
+	 * and another `struct read' to use for combined sequence.  */
 
 	struct read read_1;
 	struct read read_2;
@@ -835,8 +838,6 @@ int main(int argc, char **argv)
 	init_read(&read_2);
 	init_read(&combined_read);
 
-	/* Set up a `struct read' that will serve as the combined read that will
-	 * be written to the output file when needed. */
 	while (next_mate_pair(&read_1, &read_2, mates1_gzf, mates2_gzf, phred_offset)) {
 		if (verbose && ++pair_no % 25000 == 0)
 			info("Processed %lu reads", pair_no);
@@ -894,7 +895,6 @@ int main(int argc, char **argv)
 		info("    Percent combined: %.2f%%", (num_total_reads) ?
 			(double)num_combined_reads * 100 / num_total_reads : 0);
 		info(" ");
-
 	}
 
 	if (!to_stdout) {
