@@ -70,14 +70,25 @@ static void usage()
 "                          platforms, or 64, which corresponds to the\n"
 "                          earlier Illumina platforms.  Default: 33.\n"
 "\n"
-"  -f, --fragment-len=LEN  Average fragment length.  Default: 180.\n"
-"\n"
+"  -r, --read-len=LEN\n"
+"  -f, --fragment-len=LEN\n"
 "  -s, --fragment-len-stddev=LEN\n"
-"                          Standard deviation of fragment lengths.  If you do\n"
-"                          not know the standard deviation of the fragment\n"
-"                          library, you can probably assume that the standard\n"
-"                          deviation is 10% of the average fragment length.\n"
-"                          Default: 20.\n"
+"                          Average read length, fragment length, and fragment\n"
+"                          standard deviation.  These are convenience parameters\n"
+"                          only, as they are only used for calculating the\n"
+"                          maximum overlap (--max-overlap) parameter.\n"
+"                          The maximum overlap is calculated as the overlap of\n"
+"                          average-length reads from an average-size fragment\n"
+"                          plus 2.5 times the fragment length standard\n"
+"                          deviation.  The default values are -r 100, -f 180,\n"
+"                          and -s 18, so this works out to a maximum overlap of\n"
+"                          70 bp.  If --max-overlap is specified, then the\n"
+"                          specified value overrides the calculated value.\n"
+"\n"
+"                          If you do not know the standard deviation of the\n"
+"                          fragment library, you can probably assume that the\n"
+"                          standard deviation is 10% of the average fragment\n"
+"                          length.\n"
 "\n"
 "  -o, --output-prefix=PREFIX\n"
 "                          Prefix of output files.  Default: \"out\".\n"
@@ -124,6 +135,7 @@ static const struct option longopts[] = {
 	{"max-overlap",          required_argument,  NULL, 'M'}, 
 	{"max-mismatch-density", required_argument,  NULL, 'x'}, 
 	{"phred-offset",         required_argument,  NULL, 'p'}, 
+	{"read_len",		 required_argument,  NULL, 's'}, 
 	{"fragment-len",         required_argument,  NULL, 'f'}, 
 	{"fragment-len-stddev",  required_argument,  NULL, 's'}, 
 	{"output-prefix",        required_argument,  NULL, 'o'}, 
@@ -588,6 +600,13 @@ int main(int argc, char **argv)
 				fatal_error("Fragment length standard deviation "
 					    "must be a positive integer!  "
 					    "Please check option -s.");
+			break;
+		case 'r':
+			read_len = strtol(optarg, &tmp, 10);
+			if (tmp == optarg || read_len <= 0)
+				fatal_error("Read length must be a "
+					    "positive integer!  Please check "
+					    "option -r.");
 			break;
 		case 'o':
 			prefix = optarg;

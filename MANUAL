@@ -1,8 +1,12 @@
+				  INTRODUCTION
+
 FLASH (Fast Length Adjustment of SHort reads) is a very accurate and fast tool 
 to merge paired-end reads that were generated from DNA fragments whose lengths 
 are shorter than twice the length of reads. Merged read pairs result in unpaired 
 longer reads. Longer reads are generally more desired in genome assembly and 
 genome analysis processes.
+
+FLASH cannot merge paired-end reads that do not overlap.
 
 				  INSTALLATION
 
@@ -38,74 +42,120 @@ Makefile.
 
 				     USAGE
 
-NOTE:  This information is outdated; see the program help (`flash --help') for
-the up-to-date help.
+Usage: flash [OPTIONS] MATES_1.FASTQ MATES_2.FASTQ
 
-flash <mates1.fastq> <mates2.fastq> [-m minOverlap] [-M maxOverlap] [-x mismatchRatio] 
-[-p phredOffset] [-o prefixOfOutputFiles] [-d pathToDirectoryForOutputFiles] 
-[-f averageFragment Length] [-s standardDeviationOfFragments] [-r averageReadLength]
-[-h displayHelp] 
+DESCRIPTION:
 
-mates1.fastq and mates2.fastq are fastq files of paired-end reads from the short 
-fragment library (with insert size less than twice the length of reads). The 
-corresponding mates should be in the same order in both files.
+FLASH (Fast Length Adjustment of SHort reads) is an accurate and fast tool
+to merge paired-end reads that were generated from DNA fragments whose
+lengths are shorter than twice the length of reads.  Merged read pairs result
+in unpaired longer reads.  Longer reads are generally more desired in genome
+assembly and genome analysis processes.
 
+MANDATORY INPUT:
 
-Options:
+To run FLASH, you must provide two FASTQ files of paired-end reads.
+Corresponding read pairs must be in the same order in both files.
 
--m: minOverlap is the minimum required overlap length between two reads to provide 
-a confident overlap. Default: 10bp.
+OPTIONS:
 
--M: maxOverlap is the maximum overlap length expected in approximately 90% of read 
-pairs. It is by default set to 70bp, which works well for 100bp reads generated from 
-180bp library (normal distribution of fragment lengths is assumed). Overlaps longer 
-than maxOverlap are still considered as good overlaps, but the mismatch ratio 
-(explained below) is calculated over the maxOverlap rather than the true overlap 
-length. If you enter a value for maxOverlap, then the read length, fragmetn length 
-and standard deviaiton of fragment lengths that you enter will be ignored for 
-calculation of maxOverlap parameter. Default: 70bp.
+  -m, --min-overlap=NUM   The minimum required overlap length between two
+                          reads to provide a confident overlap.  Default:
+                          10bp.
 
--x: mismatchRatio is the maximum allowed ratio of the number of mismatches and the 
-overlap length. An overlap with mismatch ratio higher than the set value is considered 
-incorrect overlap and mates will not be merged. Any occurence of an "N" in any read is 
-ignored and not counted towards the mismatches or overlap length. Our experimental 
-results suggest that higher values of mismatchRatio yield larger number of correctly 
-merged read pairs but at the expense of higher number of incorrectly merged read 
-pairs. Default: 0.25. 
+  -M, --max-overlap=NUM   Maximum overlap length expected in approximately
+                          90% of read pairs.  It is by default set to 70bp,
+                          which works well for 100bp reads generated from a
+                          180bp library, assuming a normal distribution of
+                          fragment lengths.  Overlaps longer than the maximum
+                          overlap parameter are still considered as good
+                          overlaps, but the mismatch density (explained below)
+                          is calculated over the first max_overlap bases in
+                          the overlapped region rather than the entire
+                          overlap.  Default: 70bp, or calculated from the
+                          specified read length, fragment length, and fragment
+                          length standard deviation.
 
--p: phredOffset is the smallest ASCII value of the characters used to represent 
-quality values of bases in fastq files. It should be set to either 33, which corresponds 
-to the later Illumina platforms and Sanger platforms, or 64, which corresponds to 
-the earlier Illumina platforms. Default: 33.
+  -x, --max-mismatch-density=NUM
+                          Maximum allowed ratio between the number of
+                          mismatched base pairs and the overlap length.
+                          Two reads will not be combined with a given overlap
+                          if that overlap results in a mismatched base density
+                          higher than this value.  Note: Any occurence of an
+                          'N' in either read is ignored and not counted
+                          towards the mismatches or overlap length.  Our
+                          experimental results suggest that higher values of
+                          the maximum mismatch density yield larger
+                          numbers of correctly merged read pairs but at
+                          the expense of higher numbers of incorrectly
+                          merged read pairs.  Default: 0.25.
 
--o: prefix of output files. Default: out.
+  -p, --phred-offset=OFFSET
+                          The smallest ASCII value of the characters used to
+                          represent quality values of bases in FASTQ files.
+                          It should be set to either 33, which corresponds
+                          to the later Illumina platforms and Sanger
+                          platforms, or 64, which corresponds to the
+                          earlier Illumina platforms.  Default: 33.
 
--d: path to directory for the output files. Default: current working directory.
+  -r, --read-len=LEN
+  -f, --fragment-len=LEN
+  -s, --fragment-len-stddev=LEN
+                          Average read length, fragment length, and fragment
+                          standard deviation.  These are convenience parameters
+                          only, as they are only used for calculating the
+                          maximum overlap (--max-overlap) parameter.
+                          The maximum overlap is calculated as the overlap of
+                          average-length reads from an average-size fragment
+                          plus 2.5 times the fragment length standard
+                          deviation.  The default values are -r 100, -f 180,
+                          and -s 18, so this works out to a maximum overlap of
+                          70 bp.  If --max-overlap is specified, then the
+                          specified value overrides the calculated value.
 
--r: average read length. Default: 100.
+                          If you do not know the standard deviation of the
+                          fragment library, you can probably assume that the
+                          standard deviation is 10% of the average fragment
+                          length.
 
--f: average fragment length. Default: 180.
+  -o, --output-prefix=PREFIX
+                          Prefix of output files.  Default: "out".
 
--s: standard deviation of fragment lengths. If you do not know standard deviation of the 
-fragment library, you can probably assume that the standard deviation is 10% of the average 
-fragment length. Default: 20. 
+  -d, --output-directory=DIR
+                          Path to directory for output files.  Default:
+                          current working directory.
 
--h: display help information.
+  -c, --to-stdout         Write the combined reads to standard output; do not
+                          write uncombined reads to anywhere.
 
+  -z, --compress          Compress the FASTQ output files with zlib.
+
+  -t, --threads=NTHREADS  Set the number of worker threads.  This is in
+                          addition to the I/O threads.  Ignored if support
+                          for multiple threads was not compiled in.  Default:
+                          number of processors.  Note: if you need FLASH's
+                          output to appear deterministically or in the some
+                          order as the original reads, you must specify
+                          -t 1 (--threads=1).
+
+  -h, --help              Display this help and exit.
+
+  -v, --version           Display version.
 
 				  PERFORMANCE
 
-FLASH is extremely fast tool for merging mates from short paired-end library. It processes 
-one million 100-bp read pairs in 120 seconds on a server with 256 GB of RAM and a six-core 
-2.4 GHz AMD Opteron, or in 129 seconds on a desktop with 2 GB of RAM and a dual-core Intel 
-Xeon 3.00 GHz CPU.
+FLASH is extremely fast tool for merging mates from short paired-end library. It
+processes one million 100-bp read pairs in 120 seconds on a server with 256 GB
+of RAM and a six-core 2.4 GHz AMD Opteron, or in 129 seconds on a desktop with 2
+GB of RAM and a dual-core Intel Xeon 3.00 GHz CPU.
 
 				    ACCURACY
 
-With reads' error rate of 1% or less, FLASH processes over 99% of read pairs correctly. With 
-error rate of 2%, FLASH processes over 98% of read pairs correctly when default parameters 
-are used. With more aggressive parameters (i.e., -x 0.35), FLASH processes over 90% of read 
-pairs correctly even when the error rate is 5%.
+With reads' error rate of 1% or less, FLASH processes over 99% of read pairs
+correctly. With error rate of 2%, FLASH processes over 98% of read pairs
+correctly when default parameters are used. With more aggressive parameters
+(i.e., -x 0.35), FLASH processes over 90% of read pairs correctly even when the
+error rate is 5%.
 
 
 			  COMMENTS/QUESTIONS/REQUESTS
