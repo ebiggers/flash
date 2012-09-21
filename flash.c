@@ -452,7 +452,7 @@ static void *combiner_thread_proc(void *__params)
 				hist_inc(combined_read_len_hist, 0);
 			}
 
-			if (!combination_successful || to_stdout) {
+			if (combination_successful || to_stdout) {
 				/* We do not need to write the uncombined reads,
 				 * either because the reads were combined, or we
 				 * are writing to stdout.  So put them back in
