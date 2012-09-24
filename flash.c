@@ -680,7 +680,7 @@ int main(int argc, char **argv)
 
 	mkdir_p(output_dir);
 
-	char name_buf[strlen(output_dir) + 1 +
+	char name_buf[strlen(output_dir) + 1 + strlen(prefix) +
 		      sizeof(".notCombined_2.fastq") + sizeof(".gz")];
 	char *suffix;
 	suffix = name_buf + sprintf(name_buf, "%s/%s", output_dir, prefix);
