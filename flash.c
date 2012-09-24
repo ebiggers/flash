@@ -781,6 +781,9 @@ int main(int argc, char **argv)
 		.queue_lock           = PTHREAD_MUTEX_INITIALIZER,
 	};
 
+	if (verbose)
+		info("Starting %d combiner threads", num_combiner_threads);
+
 	pthread_t other_combiner_threads[num_combiner_threads - 1];
 	for (int i = 0; i < num_combiner_threads; i++) {
 		struct combiner_thread_params *p;

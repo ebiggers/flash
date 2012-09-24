@@ -82,6 +82,7 @@ void info(const char *msg, ...)
 	fputs(PROGRAM_TAG, stdout);
 	vprintf(msg, va);
 	putchar('\n');
+	fflush(stdout);
 	va_end(va);
 }
 
