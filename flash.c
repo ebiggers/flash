@@ -437,6 +437,9 @@ static void *combiner_thread_proc(void *__params)
 			if (combination_successful) {
 				/* Combination was successful. */
 
+				hist_inc(combined_read_len_hist,
+					 combined_read->seq_len);
+
 				get_combined_tag(read_1, read_2, combined_read);
 
 				if (++combined_read_filled == READS_PER_READ_SET) {
@@ -446,8 +449,6 @@ static void *combiner_thread_proc(void *__params)
 							threads->writer_combined.free_q);
 					combined_read_filled = 0;
 				}
-				hist_inc(combined_read_len_hist,
-					 combined_read->seq_len);
 			} else {
 				hist_inc(combined_read_len_hist, 0);
 			}
