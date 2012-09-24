@@ -159,6 +159,12 @@ correctly when default parameters are used. With more aggressive parameters
 (i.e., -x 0.35), FLASH processes over 90% of read pairs correctly even when the
 error rate is 5%.
 
+				  PUBLICATION
+
+Title:   FLASH: fast length adjustment of short reads to improve genome assemblies
+Authors: Tanja Magoč and Steven L. Salzberg
+URL:     http://bioinformatics.oxfordjournals.org/content/27/21/2957.full
+
 
 			  COMMENTS/QUESTIONS/REQUESTS
 
