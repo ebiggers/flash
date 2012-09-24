@@ -662,6 +662,15 @@ int main(int argc, char **argv)
 		max_overlap = (int)(2 * read_len - fragment_len +
 				    2.5 * fragment_len_stddev);
 
+	if (max_overlap < min_overlap) {
+		fatal_error(
+"Maximum overlap (%d) cannot be less than the minimum overlap (%d).\n"
+"Please make sure you have provided the read length and fragment length\n"
+"correctly.  Or, alternatively, specify the minimum and maximum overlap\n"
+"manually with the --min-overlap and --max-overlap options.",
+			max_overlap, min_overlap);
+	}
+
 #ifdef MULTITHREADED
 	if (num_combiner_threads == 0)
 		num_combiner_threads = get_default_num_threads();
