@@ -1,3 +1,7 @@
+Version 1.2.2
+-------------------
+Fix linking problem in Makefile
+
 Version 1.2.1
 -------------------
 - There is no longer any read length or tag length limit, although you may still
