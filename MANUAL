@@ -20,8 +20,8 @@ the C library, is the zlib data compression library.
 To install FLASH, download the tarball, untar it, and compile the code using the
 provided Makefile:
 
-$ tar xzf FLASH-1.2.1.tar.gz
-$ cd FLASH-1.2.1
+$ tar xzf FLASH-1.2.2.tar.gz
+$ cd FLASH-1.2.2
 $ make
 
 The executable file that is produced is named 'flash'.
