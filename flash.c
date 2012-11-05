@@ -154,12 +154,12 @@ static const struct option longopts[] = {
 
 static void copy_tag(struct read *to, const struct read *from)
 {
-	if (to->tag_bufsz < from->tag_len) {
-		to->tag = xrealloc(to->tag, from->tag_len);
-		to->tag_bufsz = from->tag_len;
+	if (to->tag_bufsz < from->tag_len + 1) {
+		to->tag = xrealloc(to->tag, from->tag_len + 1);
+		to->tag_bufsz = from->tag_len + 1;
 	}
 	to->tag_len = from->tag_len;
-	memcpy(to->tag, from->tag, from->tag_len);
+	memcpy(to->tag, from->tag, from->tag_len + 1);
 }
 
 /* 
