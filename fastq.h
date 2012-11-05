@@ -4,6 +4,7 @@
 #include <zlib.h>
 #include <stdbool.h>
 #include "util.h"
+#include <stdlib.h>
 
 struct file_operations;
 
@@ -77,6 +78,13 @@ extern bool next_mate_pair(struct read *read_1, struct read *read_2,
 static inline void init_read(struct read *read)
 {
 	memset(read, 0, sizeof(*read));
+}
+
+static inline void destroy_read(struct read *r)
+{
+	free(r->tag);
+	free(r->seq);
+	free(r->qual);
 }
 
 extern void write_read_uncompressed(struct read *read, void *fp,

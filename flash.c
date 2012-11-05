@@ -887,6 +887,9 @@ int main(int argc, char **argv)
 	fops->close_file(out_combined_fp);
 	fops->close_file(out_notcombined_fp_1);
 	fops->close_file(out_notcombined_fp_2);
+	destroy_read(&read_1);
+	destroy_read(&read_2);
+	destroy_read(&combined_read);
 #endif /* !MULTITHREADED */
 
 

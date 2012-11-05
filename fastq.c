@@ -202,13 +202,10 @@ static struct read *new_read()
 static void free_read(struct read *r)
 {
 	if (r) {
-		free(r->tag);
-		free(r->seq);
-		free(r->qual);
+		destroy_read(r);
 		free(r);
 	}
 }
-
 
 static struct read_set *new_read_set()
 {
