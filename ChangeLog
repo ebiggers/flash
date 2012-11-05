@@ -49,8 +49,8 @@ Version v1.0.3
 2. FLASH builds a histogram of fragment lengths produced by merged read pairs.
 3. FLASH now allows for reads longer than 170bp to be processed (READ_LENGTH is utilities.h file still needs to be changed manually to the read length if it is greater than 170).
 4. If original reads' ID contains barcode, the barcode is kept as a part of the ID in the output fragments.
-	
-	
+
+
 
 Version v1.0.2
 --------------
@@ -62,12 +62,12 @@ Added options for easier handling of the program:
 2. Added the parameter to print 'help' for running the program.
 3. Added the option to specify prefix of the output files.
 4. Added the option to specify directory of the output files.
-	
+
 Functional changes:
 1. Changed read length to 170.
 2. Automatic calculation of maximum overlap length given average read length, average fragment length, and fragment standard deviation.
-	
-	
+
+
 Version v1.0.1
 --------------
 Fixed bugs:

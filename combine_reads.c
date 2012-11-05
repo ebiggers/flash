@@ -3,7 +3,7 @@
 #include "util.h"
 
 
-/* 
+/*
  * Align the read @seq_1 to the read @seq_2, where @overlap_len is the length of
  * the attempted overlap and the length of @seq_1, and @seq_2_len is the length
  * of @seq_2.
@@ -14,16 +14,16 @@
  * in the overlapped region.
  *
  * The maximum overlap length considered in the scoring is @max_overlap, while
- * the minimum is @min_overlap. 
+ * the minimum is @min_overlap.
  */
-static void align_position(const char * restrict seq_1, 
+static void align_position(const char * restrict seq_1,
 			   const char * restrict seq_2,
 			   const char * restrict qual_1,
 			   const char * restrict qual_2,
-			   int overlap_len, 
-			   int min_overlap, 
-			   int max_overlap, 
-			   float *mismatch_density_ret, 
+			   int overlap_len,
+			   int min_overlap,
+			   int max_overlap,
+			   float *mismatch_density_ret,
 			   float *qual_score_ret)
 {
 	int num_non_dna_chars = 0;
@@ -39,7 +39,7 @@ static void align_position(const char * restrict seq_1,
 		} else {
 			if (seq_1[i] != seq_2[i])  {
 				num_mismatches++;
-				mismatch_qual_total += min(qual_1[i], 
+				mismatch_qual_total += min(qual_1[i],
 							   qual_2[i]);
 			}
 		}
@@ -66,13 +66,13 @@ static void align_position(const char * restrict seq_1,
 }
 
 
-/* 
+/*
  * Return the position of the first overlapping character in the first read
  * (0-based) of the best overlap between two reads, or -1 if the best overlap
  * does not satisfy the required threshold.
  */
 static int pair_align(const struct read *read_1, const struct read *read_2,
-		      int min_overlap, int max_overlap, 
+		      int min_overlap, int max_overlap,
 		      float max_mismatch_density)
 {
 	/* Best (smallest) mismatch density that has been found so far in an
@@ -91,11 +91,11 @@ static int pair_align(const struct read *read_1, const struct read *read_2,
 		float qual_score;
 
 		align_position(read_1->seq + i,
-			       read_2->seq, 
+			       read_2->seq,
 			       read_1->qual + i,
 			       read_2->qual,
 			       read_1->seq_len - i,
-			       min_overlap, max_overlap, 
+			       min_overlap, max_overlap,
 			       &mismatch_density, &qual_score);
 
 		if (mismatch_density < best_mismatch_density) {
@@ -141,7 +141,7 @@ bool combine_reads(const struct read *read_1, const struct read *read_2,
 	char * restrict combined_qual;
 
 	/* Do the alignment. */
-	overlap_begin = pair_align(read_1, read_2, min_overlap, max_overlap, 
+	overlap_begin = pair_align(read_1, read_2, min_overlap, max_overlap,
 				   max_mismatch_density);
 
 	/* If no alignment found, return false */

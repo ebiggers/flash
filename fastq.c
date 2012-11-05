@@ -37,7 +37,7 @@ static ssize_t gzip_getline(gzFile gz_fp, char **lineptr, size_t *n)
 	}
 }
 
-/* 
+/*
  * Reads the next read from the FASTQ file @mates_gzf into the @read structure.
  *
  * Whitespace is stripped from the end of the sequence, tag, and quality scores.
@@ -112,7 +112,7 @@ static void sprint_read(char buf[], const struct read *read, int phred_offset)
 	*p++ = '\n';
 }
 
-/* 
+/*
  * Writes a read to an output uncompressed FASTQ file.
  *
  * @read:
@@ -121,7 +121,7 @@ static void sprint_read(char buf[], const struct read *read, int phred_offset)
  * @fp:
  * 	FASTQ file opened for writing.
  * @phred_offset:
- * 	Offset for quality values in the output.  
+ * 	Offset for quality values in the output.
  *
  * Aborts on write error.
  */
@@ -139,7 +139,7 @@ void write_read_uncompressed(struct read *read, void *_fp, int phred_offset)
 
 
 
-/* 
+/*
  * Writes a read to an output zlib-compressed FASTQ file.
  *
  * @read:
@@ -148,7 +148,7 @@ void write_read_uncompressed(struct read *read, void *_fp, int phred_offset)
  * @fp:
  * 	FASTQ file opened for writing.
  * @phred_offset:
- * 	Offset for quality values in the output.  
+ * 	Offset for quality values in the output.
  *
  * Aborts on write error.
  */
@@ -227,7 +227,7 @@ void free_read_set(struct read_set *p)
 
 #include <semaphore.h>
 
-/* 
+/*
  * Producer-consumer queue; it holds pointers to `struct read_sets', which can
  * be added or removed from the queue in a thread-safe manner using
  * read_queue_put() and read_queue_get(), respectively.
@@ -328,7 +328,7 @@ new_reader_writer_params(size_t q_size, void *fp,
 			 bool verbose)
 {
 	struct reader_writer_params *p;
-	
+
 	p = xmalloc(sizeof(struct reader_writer_params));
 	if (free_q)
 		p->free_q = free_q;
@@ -343,7 +343,7 @@ new_reader_writer_params(size_t q_size, void *fp,
 	return p;
 }
 
-/* 
+/*
  * This is the procedure that is executed by the reader threads.
  *
  * Each one of these threads repeatedly reads the next read from a FASTQ file.
@@ -393,7 +393,7 @@ out:
 	return NULL;
 }
 
-/* 
+/*
  * This is the procedure that is executed by the writer threads.
  *
  * Each of these threads repeatedly retrieves a read set from the "ready" queue
@@ -448,7 +448,7 @@ static void start_fastq_reader(void *fp, int phred_offset,
 {
 	struct reader_writer_params *p;
 	int ret;
-	
+
 	p = new_reader_writer_params(queue_size, fp, NULL, phred_offset,
 				     NULL, num_combiner_threads, verbose);
 	thread->free_q = p->free_q;
@@ -468,7 +468,7 @@ static void start_fastq_writer(void *fp, int phred_offset,
 {
 	struct reader_writer_params *p;
 	int ret;
-	
+
 	p = new_reader_writer_params(queue_size, fp, fops, phred_offset,
 				     free_q, num_combiner_threads, false);
 	thread->free_q = p->free_q;
@@ -545,8 +545,8 @@ void stop_fastq_readers_and_writers(const struct threads *threads)
 
 #else /* MULTITHREADED */
 
-/* 
- * Reads the next mate pair from the FASTQ files @mates1_gzf and @mates2_gzf.  
+/*
+ * Reads the next mate pair from the FASTQ files @mates1_gzf and @mates2_gzf.
  *
  * Whitespace is stripped from the ends of the sequences, tags, and quality
  * scores.
@@ -560,7 +560,7 @@ void stop_fastq_readers_and_writers(const struct threads *threads)
  *
  * Returns true on success, false on EOF.  Aborts on read error.
  */
-bool next_mate_pair(struct read *read_1, struct read *read_2, gzFile mates1_gzf, 
+bool next_mate_pair(struct read *read_1, struct read *read_2, gzFile mates1_gzf,
 		    gzFile mates2_gzf, int phred_offset)
 {
 	if (!next_read(read_1, mates1_gzf, phred_offset))

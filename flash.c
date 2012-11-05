@@ -15,7 +15,7 @@
 
 static void usage()
 {
-	const char *usage_str = 
+	const char *usage_str =
 "Usage: flash [OPTIONS] MATES_1.FASTQ MATES_2.FASTQ\n"
 "\n"
 "DESCRIPTION:\n"
@@ -133,21 +133,21 @@ static void version()
 
 static const char *optstring = "m:M:x:p:r:f:s:o:d:czt:qhv";
 static const struct option longopts[] = {
-	{"min-overlap",          required_argument,  NULL, 'm'}, 
-	{"max-overlap",          required_argument,  NULL, 'M'}, 
-	{"max-mismatch-density", required_argument,  NULL, 'x'}, 
-	{"phred-offset",         required_argument,  NULL, 'p'}, 
-	{"read_len",		 required_argument,  NULL, 'r'}, 
-	{"fragment-len",         required_argument,  NULL, 'f'}, 
-	{"fragment-len-stddev",  required_argument,  NULL, 's'}, 
-	{"output-prefix",        required_argument,  NULL, 'o'}, 
-	{"output-directory",     required_argument,  NULL, 'd'}, 
+	{"min-overlap",          required_argument,  NULL, 'm'},
+	{"max-overlap",          required_argument,  NULL, 'M'},
+	{"max-mismatch-density", required_argument,  NULL, 'x'},
+	{"phred-offset",         required_argument,  NULL, 'p'},
+	{"read_len",		 required_argument,  NULL, 'r'},
+	{"fragment-len",         required_argument,  NULL, 'f'},
+	{"fragment-len-stddev",  required_argument,  NULL, 's'},
+	{"output-prefix",        required_argument,  NULL, 'o'},
+	{"output-directory",     required_argument,  NULL, 'd'},
 	{"to-stdout",            no_argument,        NULL, 'c'},
 	{"compress",             no_argument,        NULL, 'z'},
 	{"threads",              required_argument,  NULL, 't'},
-	{"quiet",                no_argument,	     NULL, 'q'}, 
-	{"help",                 no_argument,	     NULL, 'h'}, 
-	{"version",              no_argument,	     NULL, 'v'}, 
+	{"quiet",                no_argument,	     NULL, 'q'},
+	{"help",                 no_argument,	     NULL, 'h'},
+	{"version",              no_argument,	     NULL, 'v'},
 	{NULL, 0, NULL, 0}
 };
 
@@ -162,7 +162,7 @@ static void copy_tag(struct read *to, const struct read *from)
 	memcpy(to->tag, from->tag, from->tag_len + 1);
 }
 
-/* 
+/*
  * Given the FASTQ tags of two paired-end reads, find the FASTQ tag to give to
  * the combined read.
  *
@@ -306,7 +306,7 @@ static void write_hist_file(const char *hist_file,
 	xfclose(fp);
 }
 
-static void write_histogram_file(const char *histogram_file, 
+static void write_histogram_file(const char *histogram_file,
 				 const struct histogram *hist,
 				 long first_nonzero_idx,
 				 long last_nonzero_idx,
@@ -390,7 +390,7 @@ static void *combiner_thread_proc(void *__params)
 		 * conditions could occur where thread A retrieves a set of
 		 * read 1's, then thread B retrieves the next set of read 1's
 		 * along with the read 2's that should have been received by
-		 * thread A. 
+		 * thread A.
 		 *
 		 * This should not be big bottleneck because all the reads in
 		 * each read set need to be processed before we get the next
@@ -423,7 +423,7 @@ static void *combiner_thread_proc(void *__params)
 			reverse_complement(read_2->seq, read_2->seq_len);
 			reverse(read_2->qual, read_2->seq_len);
 
-			
+
 			/* Next available combined read in the combined_read_set
 			 * */
 			combined_read = combined_read_set->reads[combined_read_filled];
@@ -497,7 +497,7 @@ no_more_reads:
 	 * reads to the writers, terminated by a NULL read.  Actually, all the
 	 * remaining reads in the uncombined and combined read sets should be
 	 * set to NULL, as they have not been assigned yet, but they will be
-	 * freed later.  
+	 * freed later.
 	 *
 	 * We should also free the memory for the read_set_1 and read_set_2.  Up
 	 * to but not including the read at index i, the reads have been moved
@@ -572,7 +572,7 @@ int main(int argc, char **argv)
 			break;
 		case 'x':
 			max_mismatch_density = strtod(optarg, &tmp);
-			if (tmp == optarg || *tmp || max_mismatch_density < 0.0 || 
+			if (tmp == optarg || *tmp || max_mismatch_density < 0.0 ||
 			    max_mismatch_density > 1.0)
 			{
 				fatal_error("Max mismatch density must be a "
@@ -583,7 +583,7 @@ int main(int argc, char **argv)
 		case 'p':
 			phred_offset = strtol(optarg, &tmp, 10);
 			if (tmp == optarg || *tmp ||
-			    phred_offset < 0 || phred_offset > 127) 
+			    phred_offset < 0 || phred_offset > 127)
 			{
 				fatal_error("Phred offset must be a in integer "
 					    "in the range [0, 127]!  Please "
@@ -740,7 +740,7 @@ int main(int argc, char **argv)
 	}
 
 
-	/* 
+	/*
 	 * We wish to do the following:
 	 *
 	 * "Go through each mate pair in the input files.  Determine if it can
@@ -859,19 +859,19 @@ int main(int argc, char **argv)
 		{
 			/* Combination was successful. */
 			get_combined_tag(&read_1, &read_2, &combined_read);
-			fops->write_read(&combined_read, out_combined_fp, 
+			fops->write_read(&combined_read, out_combined_fp,
 				   	 phred_offset);
 			hist_inc(combined_read_len_hist,
 				 combined_read.seq_len);
 		} else {
 			/* Combination was unsuccessful. */
 			if (!to_stdout) {
-				fops->write_read(&read_1, out_notcombined_fp_1, 
+				fops->write_read(&read_1, out_notcombined_fp_1,
 						 phred_offset);
 				reverse_complement(read_2.seq,
 						   read_2.seq_len);
 				reverse(read_2.qual, read_2.seq_len);
-				fops->write_read(&read_2, out_notcombined_fp_2, 
+				fops->write_read(&read_2, out_notcombined_fp_2,
 						 phred_offset);
 			}
 			hist_inc(combined_read_len_hist, 0);
@@ -896,7 +896,7 @@ int main(int argc, char **argv)
 	/* The remainder is the same regardless of whether we are compiling for
 	 * multiple threads or not (and we are down to one thread at this point
 	 * anyway). */
-	
+
 	if (verbose) {
 		unsigned long num_combined_reads;
 		unsigned long num_uncombined_reads;
@@ -933,8 +933,8 @@ int main(int argc, char **argv)
 		/* Write a pretty representation of the combined read length
 		 * histogram to the PREFIX.histogram file. */
 		strcpy(suffix, ".histogram");
-		write_histogram_file(name_buf, combined_read_len_hist, 
-				     first_nonzero_idx, last_nonzero_idx, 
+		write_histogram_file(name_buf, combined_read_len_hist,
+				     first_nonzero_idx, last_nonzero_idx,
 				     max_freq);
 	}
 	hist_destroy(combined_read_len_hist);

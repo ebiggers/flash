@@ -74,7 +74,7 @@ static inline size_t trim(char *s, size_t len)
 extern const char canonical_ascii_tab[];
 extern const char complement_tab[];
 
-/* Turns lowercase a, c, g, t into uppercase; 
+/* Turns lowercase a, c, g, t into uppercase;
  * uppercase A, C, G, T stay the same;
  * everything else turns into 'N'.  */
 static inline char canonical_ascii_char(char c)

@@ -125,14 +125,14 @@ void *xrealloc(void *ptr, size_t size)
 
 /* fopen(), exiting the program with failure status if file open fails. */
 void *xfopen(const char *filename, const char *mode)
-{ 
+{
 	if (strcmp(filename, "-") == 0)
 		return (void*)stdout;
 
 	FILE *fp = fopen(filename, mode);
 	if (!fp) {
 		fatal_error_with_errno("Could not open the file \"%s\" for %s",
-			    filename, 
+			    filename,
 			    strchr(mode, 'w') ? "writing" : "reading");
 	}
 	return (void*)fp;
@@ -188,8 +188,8 @@ void mkdir_p(const char *dir)
 		/* Copy the directory name to the @dir_copy array, squashing
 		 * together consecutive path separators. */
 		if ((dir[i] != '/' && dir[i] != '\\')
-			|| (dir[i + 1] != '/' && 
-			    dir[i + 1] != '\\')) 
+			|| (dir[i + 1] != '/' &&
+			    dir[i + 1] != '\\'))
 		{
 			*p++ = dir[i];
 		}
