@@ -536,7 +536,7 @@ int main(int argc, char **argv)
 	int phred_offset           = 33;
 	int read_len               = 100;
 	int fragment_len           = 180;
-	int fragment_len_stddev    = 20;
+	int fragment_len_stddev    = 18;
 	const char *prefix         = "out";
 	const char *output_dir     = ".";
 	bool to_stdout             = false;
