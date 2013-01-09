@@ -214,7 +214,14 @@ static struct read *new_read()
 	return r;
 }
 
-static void free_read(struct read *r)
+void destroy_read(struct read *r)
+{
+	free(r->tag);
+	free(r->seq);
+	free(r->qual);
+}
+
+void free_read(struct read *r)
 {
 	if (r) {
 		destroy_read(r);

@@ -41,7 +41,7 @@ struct threads {
 };
 
 struct read_set {
-	struct read *reads[0];
+	struct read *reads[READS_PER_READ_SET];
 };
 
 
@@ -63,9 +63,9 @@ extern void read_queue_put(struct read_queue *q, struct read_set *r);
 
 static inline struct read_set *new_empty_read_set()
 {
-	return xmalloc(sizeof(struct read_set) + READS_PER_READ_SET *
-			sizeof(struct read*));
+	return xmalloc(sizeof(struct read_set));
 }
+
 extern void free_read_set(struct read_set *p);
 
 #else /* ! MULTITHREADED */
@@ -80,12 +80,9 @@ static inline void init_read(struct read *read)
 	memset(read, 0, sizeof(*read));
 }
 
-static inline void destroy_read(struct read *r)
-{
-	free(r->tag);
-	free(r->seq);
-	free(r->qual);
-}
+extern void destroy_read(struct read *r);
+
+extern void free_read(struct read *r);
 
 extern void write_read_uncompressed(struct read *read, void *fp,
 				    int phred_offset);

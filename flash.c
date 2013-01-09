@@ -392,6 +392,7 @@ static void *combiner_thread_proc(void *__params)
 	struct read *read_1;
 	struct read *read_2;
 	unsigned i;
+	unsigned j;
 	bool combination_successful;
 
 	while (1) { /* Process each read set, retrieved from the readers' ready queues */
@@ -505,29 +506,75 @@ static void *combiner_thread_proc(void *__params)
 		}
 	}
 no_more_reads:
-	/* This combiner thread has been signalled by the reader that there are
-	 * no more reads.  We must send our pending combined and uncombined
-	 * reads to the writers, terminated by a NULL read.  Actually, all the
-	 * remaining reads in the uncombined and combined read sets should be
-	 * set to NULL, as they have not been assigned yet, but they will be
-	 * freed later.
-	 *
-	 * We should also free the memory for the read_set_1 and read_set_2.  Up
-	 * to but not including the read at index i, the reads have been moved
-	 * to the uncombined or combined read sets, so they are taken care of
-	 * and should be set to NULL.  The rest of the reads in these sets
-	 * should be freed. */
-	memset(&to_writer_1->reads[to_writer_filled], 0,
-	       (READS_PER_READ_SET - to_writer_filled) * sizeof(struct read*));
-	memset(&to_writer_2->reads[to_writer_filled], 0,
-	       (READS_PER_READ_SET - to_writer_filled) * sizeof(struct read*));
-	memset(&combined_read_set->reads[combined_read_filled], 0,
-	       (READS_PER_READ_SET - combined_read_filled) * sizeof(struct read*));
+	/* This combiner thread has been signalled by the reader(s) that there
+	 * are no more reads. */
 
-	memset(&read_set_1->reads[0], 0, i * sizeof(struct read*));
-	memset(&read_set_2->reads[0], 0, i * sizeof(struct read*));
+	/* Only the first @to_reader_filled reads in the @to_reader_? read sets
+	 * are valid.  Set the rest to NULL so they aren't freed. */
+	assert(0 <= to_reader_filled && to_reader_filled < READS_PER_READ_SET);
+	j = to_reader_filled;
+	do {
+		to_reader_1->reads[j] = NULL;
+		to_reader_2->reads[j] = NULL;
+	} while (++j != READS_PER_READ_SET);
+
+	/* Only the first @to_writer_filled reads in the @to_writer_? read sets
+	 * are valid.  Set the rest to NULL so they aren't freed, and to
+	 * NULL-terminate the read sets to signal the uncombined read writer
+	 * threads that there are no more reads from this combiner thread. */
+	assert(0 <= to_writer_filled && to_writer_filled < READS_PER_READ_SET);
+	j = to_writer_filled;
+	do {
+		to_writer_1->reads[j] = NULL;
+		to_writer_2->reads[j] = NULL;
+	} while (++j != READS_PER_READ_SET);
+
+
+	/* Only the first @combined_read_filled reads in the @combined_read_set
+	 * are actually ready to be written.  The rest need to be freed, but not
+	 * written; and the read set needs to be NULL-terminated to signal the
+	 * combined read writer that there are no more reads from this combiner
+	 * thread. */
+	assert(0 <= combined_read_filled && combined_read_filled < READS_PER_READ_SET);
+	j = combined_read_filled;
+	do {
+		free_read(combined_read_set->reads[j]);
+		combined_read_set->reads[j] = NULL;
+	} while (++j != READS_PER_READ_SET);
+
+	/* The first @i reads in @read_set_? are invalid because they've been
+	 * moved to the @to_{reader,writer}_? sets.  Set them to NULL so they
+	 * aren't freed again. */
+	assert(0 <= i && i < READS_PER_READ_SET);
+	for (j = 0; j < i; j++) {
+		read_set_1->reads[j] = NULL;
+		read_set_2->reads[j] = NULL;
+	}
+
+	/* Now, we need to dispose of the read sets properly.
+	 *
+	 * - @to_reader_?, @read_set_?, and @empty_read_set_? are all owned by
+	 *   this thread and can be freed.
+	 *
+	 * - @to_writer_? and @combined_read_set must be sent to the writers
+	 *   because each writer expects to receive a NULL-terminated read set
+	 *   from each combiner thread; furthermore, there may be unwritten
+	 *   reads in these sets.
+	 */
+	free_read_set(to_reader_1);
+	free_read_set(to_reader_2);
 	free_read_set(read_set_1);
 	free_read_set(read_set_2);
+
+	/* @empty_read_set_? are only valid if at least %READS_PER_READ_SET
+	 * reads total are waiting to be sent off to the uncombined read writers
+	 * and readers, total.   But although the empty read sets may be valid,
+	 * the reads in them will not be, so use free() instead of
+	 * free_read_set(). */
+	if (to_writer_filled + to_reader_filled >= READS_PER_READ_SET) {
+		free(empty_read_set_1);
+		free(empty_read_set_2);
+	}
 
 	pthread_mutex_lock(&params->common->queue_lock);
 	read_queue_put(threads->writer_uncombined_1.ready_q, to_writer_1);
@@ -732,7 +779,7 @@ int main(int argc, char **argv)
 
 	if (verbose) {
 		info("Starting FLASH " VERSION_STR);
-		info("Fast Length Adjustment of SHort Reads");
+		info("Fast Length Adjustment of SHort reads");
 		info(" ");
 		info("Input files:");
 		info("    %s", argv[0]);
