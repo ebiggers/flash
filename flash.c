@@ -137,7 +137,7 @@ static const struct option longopts[] = {
 	{"max-overlap",          required_argument,  NULL, 'M'},
 	{"max-mismatch-density", required_argument,  NULL, 'x'},
 	{"phred-offset",         required_argument,  NULL, 'p'},
-	{"read_len",		 required_argument,  NULL, 'r'},
+	{"read-len",		 required_argument,  NULL, 'r'},
 	{"fragment-len",         required_argument,  NULL, 'f'},
 	{"fragment-len-stddev",  required_argument,  NULL, 's'},
 	{"output-prefix",        required_argument,  NULL, 'o'},
