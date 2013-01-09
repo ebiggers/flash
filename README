@@ -20,8 +20,8 @@ the C library, is the zlib data compression library.
 To install FLASH, download the tarball, untar it, and compile the code using the
 provided Makefile:
 
-$ tar xzf FLASH-1.2.2.tar.gz
-$ cd FLASH-1.2.2
+$ tar xzf FLASH-1.2.3.tar.gz
+$ cd FLASH-1.2.3
 $ make
 
 The executable file that is produced is named 'flash'.
@@ -146,15 +146,14 @@ OPTIONS:
 
 				  PERFORMANCE
 
-FLASH is extremely fast tool for merging mates from short paired-end library. It
-processes one million 100-bp read pairs in 120 seconds on a server with 256 GB
-of RAM and a six-core 2.4 GHz AMD Opteron, or in 129 seconds on a desktop with 2
-GB of RAM and a dual-core Intel Xeon 3.00 GHz CPU.
+FLASH can process one million 100-bp read pairs in 120 seconds on a server with
+256 GB of RAM and a six-core 2.4 GHz AMD Opteron, or in 129 seconds on a desktop
+with 2 GB of RAM and a dual-core Intel Xeon 3.00 GHz CPU.
 
 				    ACCURACY
 
 With reads' error rate of 1% or less, FLASH processes over 99% of read pairs
-correctly. With error rate of 2%, FLASH processes over 98% of read pairs
+correctly.  With error rate of 2%, FLASH processes over 98% of read pairs
 correctly when default parameters are used. With more aggressive parameters
 (i.e., -x 0.35), FLASH processes over 90% of read pairs correctly even when the
 error rate is 5%.
@@ -165,6 +164,10 @@ Title:   FLASH: fast length adjustment of short reads to improve genome assembli
 Authors: Tanja Magoč and Steven L. Salzberg
 URL:     http://bioinformatics.oxfordjournals.org/content/27/21/2957.full
 
+				    LICENSE
+
+FLASH is released under the GNU General Public License Version 3 or later (see
+COPYING).
 
 			  COMMENTS/QUESTIONS/REQUESTS
 

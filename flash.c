@@ -11,7 +11,7 @@
 #include "fastq.h"
 #include "util.h"
 
-#define VERSION_STR "v1.2.2"
+#define VERSION_STR "v1.2.3"
 
 static void usage()
 {
