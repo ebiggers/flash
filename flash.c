@@ -30,6 +30,8 @@ static void usage()
 "\n"
 "To run FLASH, you must provide two FASTQ files of paired-end reads.\n"
 "Corresponding read pairs must be in the same order in both files.\n"
+"Alternatively, you may provide one FASTQ file containing interleaved\n"
+"paired-end reads, which may be standard input (specify \"-\" for this).\n"
 "\n"
 "OPTIONS:\n"
 "\n"
@@ -92,6 +94,11 @@ static void usage()
 "                          standard deviation is 10% of the average fragment\n"
 "                          length.\n"
 "\n"
+"  -I, --interleaved       Instead of requiring files MATES_1.FASTQ and\n"
+"                          MATES_2.FASTQ, allow a single file MATES.FASTQ that\n"
+"                          has the paired-end reads interleaved.  Specify \"-\"\n"
+"                          to read from standard input.\n"
+"\n"
 "  -o, --output-prefix=PREFIX\n"
 "                          Prefix of output files.  Default: \"out\".\n"
 "\n"
@@ -112,11 +119,14 @@ static void usage()
 "                          order as the original reads, you must specify\n"
 "                          -t 1 (--threads=1).\n"
 "\n"
+"  -q, --quiet             Do not print informational messages.  (Implied with\n"
+"                          --to-stdout.)\n"
+"\n"
 "  -h, --help              Display this help and exit.\n"
 "\n"
 "  -v, --version           Display version.\n"
 	;
-	puts(usage_str);
+	fputs(usage_str, stdout);
 }
 
 static void usage_short()
@@ -128,26 +138,29 @@ static void usage_short()
 
 static void version()
 {
-	puts("FLASH " VERSION_STR);
+	puts("FLASH " VERSION_STR "\n");
+	puts("License:  GNU General Public License Version 3+");
+	puts("Report bugs to flash.comment@gmail.com");
 }
 
-static const char *optstring = "m:M:x:p:r:f:s:o:d:czt:qhv";
+static const char *optstring = "m:M:x:p:r:f:s:Io:d:czt:qhv";
 static const struct option longopts[] = {
 	{"min-overlap",          required_argument,  NULL, 'm'},
 	{"max-overlap",          required_argument,  NULL, 'M'},
 	{"max-mismatch-density", required_argument,  NULL, 'x'},
 	{"phred-offset",         required_argument,  NULL, 'p'},
-	{"read-len",		 required_argument,  NULL, 'r'},
+	{"read-len",             required_argument,  NULL, 'r'},
 	{"fragment-len",         required_argument,  NULL, 'f'},
 	{"fragment-len-stddev",  required_argument,  NULL, 's'},
+	{"interleaved",          no_argument,        NULL, 'I'},
 	{"output-prefix",        required_argument,  NULL, 'o'},
 	{"output-directory",     required_argument,  NULL, 'd'},
 	{"to-stdout",            no_argument,        NULL, 'c'},
 	{"compress",             no_argument,        NULL, 'z'},
 	{"threads",              required_argument,  NULL, 't'},
-	{"quiet",                no_argument,	     NULL, 'q'},
-	{"help",                 no_argument,	     NULL, 'h'},
-	{"version",              no_argument,	     NULL, 'v'},
+	{"quiet",                no_argument,        NULL, 'q'},
+	{"help",                 no_argument,        NULL, 'h'},
+	{"version",              no_argument,        NULL, 'v'},
 	{NULL, 0, NULL, 0}
 };
 
@@ -541,12 +554,14 @@ int main(int argc, char **argv)
 	const char *output_dir     = ".";
 	bool to_stdout             = false;
 	bool verbose               = true;
-	gzFile mates1_gzf, mates2_gzf;
-	void *out_combined_fp;
+	bool interleaved           = false;
+	gzFile mates1_gzf          = NULL;
+	gzFile mates2_gzf          = NULL;
+	void *out_combined_fp      = NULL;
 	void *out_notcombined_fp_1 = NULL;
 	void *out_notcombined_fp_2 = NULL;
 #ifdef MULTITHREADED
-	int num_combiner_threads = 0;
+	int num_combiner_threads   = 0;
 #endif
 	const struct file_operations *fops = &normal_fops;
 	int c;
@@ -616,6 +631,9 @@ int main(int argc, char **argv)
 					    "positive integer!  Please check "
 					    "option -r.");
 			break;
+		case 'I':
+			interleaved = true;
+			break;
 		case 'o':
 			prefix = optarg;
 			break;
@@ -680,13 +698,14 @@ int main(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
-	if (argc != 2) {
+	if ((interleaved && argc != 1) || (!interleaved && argc != 2)) {
 		usage_short();
 		return 2;
 	}
 
 	mates1_gzf = xgzopen(argv[0], "r");
-	mates2_gzf = xgzopen(argv[1], "r");
+	if (!interleaved)
+		mates2_gzf = xgzopen(argv[1], "r");
 
 	mkdir_p(output_dir);
 
@@ -717,7 +736,8 @@ int main(int argc, char **argv)
 		info(" ");
 		info("Input files:");
 		info("    %s", argv[0]);
-		info("    %s", argv[1]);
+		if (!interleaved)
+			info("    %s", argv[1]);
 		info(" ");
 		info("Output files:");
 		assert(!to_stdout);
@@ -736,6 +756,7 @@ int main(int argc, char **argv)
 	#endif
 		info("    Max mismatch density: %f", max_mismatch_density);
 		info("    Output format:        %s", fops->name);
+		info("    Interleaved reads:    %s", interleaved ? "true" : "false");
 		info(" ");
 	}
 
@@ -853,7 +874,7 @@ int main(int argc, char **argv)
 			      mates1_gzf, mates2_gzf, phred_offset))
 	{
 		if (verbose && ++pair_no % 25000 == 0)
-			info("Processed %lu reads", pair_no);
+			info("Processed %lu read pairs", pair_no);
 		if (combine_reads(&read_1, &read_2, &combined_read, min_overlap,
 				  max_overlap, max_mismatch_density))
 		{
@@ -879,7 +900,7 @@ int main(int argc, char **argv)
 	}
 	if (verbose) {
 		if (pair_no % 25000 != 0)
-			info("Processed %lu reads", pair_no);
+			info("Processed %lu read pairs", pair_no);
 		info("Closing input and output FASTQ files");
 	}
 	gzclose(mates1_gzf);
