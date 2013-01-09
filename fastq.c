@@ -1,24 +1,42 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #include "fastq.h"
 #include "util.h"
 
+/* Similar to getline(), but read from a gzFile, and abort on read error. */
 static ssize_t gzip_getline(gzFile gz_fp, char **lineptr, size_t *n)
 {
 	size_t offset = 0;
-	ssize_t ret;
 	if (!*lineptr) {
 		*n = 128;
 		*lineptr = (char*)xmalloc(*n);
 	}
 	while (1) {
 		char *line = *lineptr;
+		assert(*n - offset > 0);
 		if (gzgets(gz_fp, line + offset, *n - offset)) {
-			ret = strlen(line);
-			if (line[ret - 1] == '\n')
-				return ret;
+			/* gzgets() reads until '\n' or until *n - offset - 1
+			 * characters have been read.  In both cases the buffer
+			 * is terminated with a '\0' character. */
+			char *nl_p = memchr(line + offset, '\n', *n - offset - 1);
+			if (nl_p) {
+				/* Read the whole line.  Return its length,
+				 * including the '\n'. */
+				assert(*(nl_p + 1) == '\0');
+				return nl_p - line + 1;
+			} else {
+				/* Didn't read the whole line.  Increase the
+				 * buffer size. */
+				assert(line[*n - 1] == '\0');
+				offset = *n - 1;
+				*n *= 2;
+				*lineptr = xrealloc(line, *n);
+				continue;
+			}
 		} else {
+			/* gzgets() returned NULL, so EOF or error occurred. */
 			const char *error_str;
 			int errnum;
 
@@ -31,9 +49,6 @@ static ssize_t gzip_getline(gzFile gz_fp, char **lineptr, size_t *n)
 				fatal_error("zlib error while reading reads "
 					    "file: %s", error_str);
 		}
-		offset = *n - 1;
-		*n *= 2;
-		*lineptr = xrealloc(line, *n);
 	}
 }
 
