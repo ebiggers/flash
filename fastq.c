@@ -205,15 +205,6 @@ const struct file_operations normal_fops = {
 	.close_file = xfclose,
 };
 
-#ifdef MULTITHREADED
-
-static struct read *new_read()
-{
-	struct read *r = xmalloc(sizeof (struct read));
-	init_read(r);
-	return r;
-}
-
 void destroy_read(struct read *r)
 {
 	free(r->tag);
@@ -221,12 +212,21 @@ void destroy_read(struct read *r)
 	free(r->qual);
 }
 
+#ifdef MULTITHREADED
+
 void free_read(struct read *r)
 {
 	if (r) {
 		destroy_read(r);
 		free(r);
 	}
+}
+
+static struct read *new_read()
+{
+	struct read *r = xmalloc(sizeof (struct read));
+	init_read(r);
+	return r;
 }
 
 static struct read_set *new_read_set()
