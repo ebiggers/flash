@@ -6,10 +6,11 @@ Version 1.2.3
 - Fix default --fragment-len-stddev option
 - Fix reading FASTQ files with embedded zero bytes
 - Fix memory leaks
+- Added license file
 
 Version 1.2.2
 -------------------
-Fix linking problem in Makefile
+- Fix linking problem in Makefile
 
 Version 1.2.1
 -------------------
