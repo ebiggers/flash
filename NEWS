@@ -1,9 +1,11 @@
 Version 1.2.3
 -------------------
 - Support for interleaved reads (-I, --interleaved), which may be read from one
-  FASTQ file or piped in from stdin.
+  FASTQ file or piped in from stdin
 - Fix --read-len option
 - Fix default --fragment-len-stddev option
+- Fix reading FASTQ files with embedded zero bytes
+- Fix memory leaks
 
 Version 1.2.2
 -------------------
