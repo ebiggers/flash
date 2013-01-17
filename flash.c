@@ -115,7 +115,29 @@ static void usage()
 "  -c, --to-stdout         Write the combined reads to standard output; do not\n"
 "                          write uncombined reads to anywhere.\n"
 "\n"
-"  -z, --compress          Compress the FASTQ output files with zlib.\n"
+"  -z, --compress          Compress the FASTQ output files directly with zlib.\n"
+"                          Similar to specifying --compress-prog=gzip and\n"
+"                          --suffix=gz, but may be slightly faster.\n"
+"\n"
+"  --compress-prog=PROG\n"
+"                          Pipe the output through the compression program\n"
+"                          PROG, which will be called as `PROG -c -z -',\n"
+"                          plus any arguments specified by --compress-prog-args,\n"
+"                          to read uncompressed data from standard input and\n"
+"                          write compressed data to standard output.\n"
+"\n"
+"  --compress-prog-args=ARGS\n"
+"                          A string of argugments that will be passed to the\n"
+"                          compression program if one is specified with\n"
+"                          --compress-prog.  Note: the arguments -z and -c\n"
+"                          are already assumed.\n"
+"\n"
+"  --suffix=SUFFIX\n"
+"                          Use SUFFIX as the suffix of the output files.\n"
+"                          A dot before the suffix is assumed, unless an\n"
+"                          empty suffix is provided.  Default: nothing;\n"
+"                          or 'gz' if -z is specified; or PROG if\n"
+"                          --compress-prog is specified.\n"
 "\n"
 "  -t, --threads=NTHREADS  Set the number of worker threads.  This is in\n"
 "                          addition to the I/O threads.  Default: number of\n"
@@ -150,7 +172,10 @@ static void version()
 
 enum {
 	INTERLEAVED_INPUT_OPTION = 257,
-	INTERLEAVED_OUTPUT_OPTION = 258,
+	INTERLEAVED_OUTPUT_OPTION,
+	COMPRESS_PROG_OPTION,
+	COMPRESS_PROG_ARGS_OPTION,
+	SUFFIX_OPTION,
 };
 
 static const char *optstring = "m:M:x:p:r:f:s:Io:d:czt:qhv";
@@ -169,6 +194,9 @@ static const struct option longopts[] = {
 	{"output-directory",     required_argument,  NULL, 'd'},
 	{"to-stdout",            no_argument,        NULL, 'c'},
 	{"compress",             no_argument,        NULL, 'z'},
+	{"compress-prog",        required_argument,  NULL, COMPRESS_PROG_OPTION},
+	{"compress-prog-args",   required_argument,  NULL, COMPRESS_PROG_ARGS_OPTION},
+	{"suffix",               required_argument,  NULL, SUFFIX_OPTION},
 	{"threads",              required_argument,  NULL, 't'},
 	{"quiet",                no_argument,        NULL, 'q'},
 	{"help",                 no_argument,        NULL, 'h'},
@@ -614,6 +642,7 @@ int main(int argc, char **argv)
 	void *out_combined_fp      = NULL;
 	void *out_notcombined_fp_1 = NULL;
 	void *out_notcombined_fp_2 = NULL;
+	const char *out_suffix     = NULL;
 	int num_combiner_threads   = 0;
 	const struct file_operations *fops = &normal_fops;
 	int c;
@@ -705,6 +734,30 @@ int main(int argc, char **argv)
 			break;
 		case 'z':
 			fops = &gzip_fops;
+			out_suffix = gzip_fops.suffix;
+			break;
+		/* XXX Some memory is leaked by the allocations below.  Doesn't
+		 * really matter though. */
+		case COMPRESS_PROG_OPTION:
+			pipe_fops.name = optarg;
+			if (out_suffix == NULL) {
+				out_suffix = xmalloc(strlen(optarg) + 2);
+				sprintf((void*)out_suffix, ".%s", optarg);
+				pipe_fops.suffix = out_suffix;
+			}
+			fops = &pipe_fops;
+			compress_prog = optarg;
+			break;
+		case COMPRESS_PROG_ARGS_OPTION:
+			compress_prog_args = optarg;
+			break;
+		case SUFFIX_OPTION:
+			if (strlen(optarg) == 0) {
+				out_suffix = optarg;
+			} else {
+				out_suffix = xmalloc(strlen(optarg) + 2);
+				sprintf((void*)out_suffix, ".%s", optarg);
+			}
 			break;
 		case 't':
 			num_combiner_threads = strtol(optarg, &tmp, 10);
@@ -729,7 +782,8 @@ int main(int argc, char **argv)
 		}
 	}
 
-
+	if (out_suffix != fops->suffix && fops == &pipe_fops)
+		pipe_fops.suffix = out_suffix;
 
 	if (max_overlap == 0)
 		max_overlap = (int)(2 * read_len - fragment_len +

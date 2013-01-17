@@ -167,10 +167,31 @@ void *xgzopen(const char *filename, const char *mode)
 	return (void*)f;
 }
 
+void *xpopen(const char *filename, const char *mode)
+{
+	size_t len = strlen(compress_prog) + 100 +
+		     strlen(filename) + strlen(compress_prog_args);
+
+	char command[len + 1];
+	sprintf(command, "%s %s -c -z - > '%s'", compress_prog,
+		compress_prog_args, filename);
+
+	FILE *fp = popen(command, mode);
+	if (!fp)
+		fatal_error_with_errno("Could not launch the command \"%s\"", command);
+	return (void*)fp;
+}
+
 void xfclose(void *fp)
 {
 	if (fp && fclose((FILE*)fp) != 0)
 		fatal_error_with_errno("Failed to close output file");
+}
+
+void xpclose(void *fp)
+{
+	if (fp && pclose((FILE*)fp) == -1)
+		fatal_error_with_errno("Failed to close pipe to output file");
 }
 
 void xgzclose(void *fp)

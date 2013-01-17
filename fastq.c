@@ -206,6 +206,16 @@ const struct file_operations normal_fops = {
 	.close_file = xfclose,
 };
 
+char *compress_prog = NULL;
+char *compress_prog_args = "";
+struct file_operations pipe_fops = {
+	.name       = NULL,
+	.suffix     = NULL,
+	.write_read = write_read_uncompressed,
+	.open_file  = xpopen,
+	.close_file = xpclose,
+};
+
 void destroy_read(struct read *r)
 {
 	free(r->tag);

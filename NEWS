@@ -1,5 +1,8 @@
 Version 1.2.4
 -------------------
+- Support for piping the output of FLASH through arbitrary compression programs
+  has been added via the --compress-prog option.  The --compress-prog-args, and
+  --suffix options also may be useful.
 - FLASH with the --interleaved option will now use an interleaved output format
   in addition to assuming interleaved input.
   Use --interleaved-input and --interleaved-output to specify only interleaved

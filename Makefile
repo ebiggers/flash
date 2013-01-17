@@ -1,5 +1,5 @@
 CC       := cc
-CFLAGS   := -O2 -Wall -std=c99 -D_POSIX_SOURCE
+CFLAGS   := -O2 -Wall -std=c99 -D_POSIX_C_SOURCE=2
 CPPFLAGS := -pthread
 LDFLAGS  := -pthread
 LDLIBS   := -lz

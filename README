@@ -138,7 +138,29 @@ OPTIONS:
   -c, --to-stdout         Write the combined reads to standard output; do not
                           write uncombined reads to anywhere.
 
-  -z, --compress          Compress the FASTQ output files with zlib.
+  -z, --compress          Compress the FASTQ output files directly with zlib.
+                          Similar to specifying --compress-prog=gzip and
+                          --suffix=gz, but may be slightly faster.
+
+  --compress-prog=PROG
+                          Pipe the output through the compression program
+                          PROG, which will be called as `PROG -c -z -',
+                          plus any arguments specified by --compress-prog-args,
+                          to read uncompressed data from standard input and
+                          write compressed data to standard output.
+
+  --compress-prog-args=ARGS
+                          A string of argugments that will be passed to the
+                          compression program if one is specified with
+                          --compress-prog.  Note: the arguments -z and -c
+                          are already assumed.
+
+  --suffix=SUFFIX
+                          Use SUFFIX as the suffix of the output files.
+                          A dot before the suffix is assumed, unless an
+                          empty suffix is provided.  Default: nothing;
+                          or 'gz' if -z is specified; or PROG if
+                          --compress-prog is specified.
 
   -t, --threads=NTHREADS  Set the number of worker threads.  This is in
                           addition to the I/O threads.  Default: number of

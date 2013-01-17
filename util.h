@@ -44,6 +44,9 @@ struct file_operations {
 
 extern const struct file_operations gzip_fops;
 extern const struct file_operations normal_fops;
+extern struct file_operations pipe_fops;
+extern char *compress_prog;
+extern char *compress_prog_args;
 
 extern void fatal_error(const char *msg, ...) \
 			__noreturn __cold __format(printf, 1, 2);
@@ -58,9 +61,11 @@ extern void mkdir_p(const char *dir) __cold;
 
 
 extern void *xfopen(const char *filename, const char *mode) __cold;
+extern void *xpopen(const char *filename, const char *mode) __cold;
 extern void *xgzopen(const char *filename, const char *mode) __cold;
 extern void xfclose(void *fp) __cold;
 extern void xgzclose(void *fp) __cold;
+extern void xpclose(void *fp) __cold;
 
 /* Remove all whitespace from the end of the line/string.  Return the length of
  * the trimmed string. */
