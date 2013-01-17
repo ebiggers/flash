@@ -1,16 +1,10 @@
-MULTITHREADED := yes
-
 CC       := cc
-CFLAGS   := -O2 -Wall -std=c99
+CFLAGS   := -O2 -Wall -std=c99 -D_POSIX_SOURCE
+CPPFLAGS := -pthread
+LDFLAGS  := -pthread
 LDLIBS   := -lz
 OBJ      := combine_reads.o fastq.o flash.o util.o
 EXE      := flash
-
-ifeq ($(MULTITHREADED),yes)
-	CFLAGS   += -DMULTITHREADED
-	CPPFLAGS += -pthread
-	LDFLAGS  += -pthread
-endif
 
 $(EXE):$(OBJ)
 

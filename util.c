@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <zlib.h>
 #include "util.h"
 
@@ -79,14 +80,16 @@ void info(const char *msg, ...)
 {
 	va_list va;
 	va_start(va, msg);
+
+	flockfile(stdout);
 	fputs(PROGRAM_TAG, stdout);
 	vprintf(msg, va);
 	putchar('\n');
 	fflush(stdout);
 	va_end(va);
+	funlockfile(stdout);
 }
 
-#ifdef MULTITHREADED
 /* Returns the number of processors (if it can be determined), otherwise returns
  * 1. */
 unsigned get_default_num_threads()
@@ -99,7 +102,6 @@ unsigned get_default_num_threads()
 		return (unsigned)nthreads;
 	}
 }
-#endif
 
 /* malloc(), exiting the program with failure status if memory allocation fails.
  * */

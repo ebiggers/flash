@@ -20,10 +20,9 @@ struct read {
 	int tag_len;
 };
 
-#ifdef MULTITHREADED
 #include <pthread.h>
-#define READS_PER_READ_SET 32
-#define QUEUE_SIZE_PER_THREAD 8
+#define READS_PER_READ_SET 5
+#define QUEUE_SIZE_PER_THREAD 2
 
 struct read_queue;
 
@@ -67,13 +66,6 @@ static inline struct read_set *new_empty_read_set()
 }
 
 extern void free_read_set(struct read_set *p);
-
-#else /* ! MULTITHREADED */
-extern bool next_mate_pair(struct read *read_1, struct read *read_2,
-			   gzFile mates1_g, gzFile mates2_g,
-			   int phred_offset);
-
-#endif /* ! MULTITHREADED */
 
 static inline void init_read(struct read *read)
 {

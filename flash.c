@@ -11,7 +11,7 @@
 #include "fastq.h"
 #include "util.h"
 
-#define VERSION_STR "v1.2.3"
+#define VERSION_STR "v1.2.4"
 
 static void usage()
 {
@@ -31,7 +31,8 @@ static void usage()
 "To run FLASH, you must provide two FASTQ files of paired-end reads.\n"
 "Corresponding read pairs must be in the same order in both files.\n"
 "Alternatively, you may provide one FASTQ file containing interleaved\n"
-"paired-end reads, which may be standard input (specify \"-\" for this).\n"
+"paired-end reads, which may be standard input (see the --interleaved)\n"
+"option).\n"
 "\n"
 "OPTIONS:\n"
 "\n"
@@ -94,10 +95,15 @@ static void usage()
 "                          standard deviation is 10% of the average fragment\n"
 "                          length.\n"
 "\n"
-"  -I, --interleaved       Instead of requiring files MATES_1.FASTQ and\n"
+"  -I, --interleaved       Equivalent to specifying both --interleaved-input\n"
+"                          and --interleaved-output.\n"
+"\n"
+"  --interleaved-input     Instead of requiring files MATES_1.FASTQ and\n"
 "                          MATES_2.FASTQ, allow a single file MATES.FASTQ that\n"
 "                          has the paired-end reads interleaved.  Specify \"-\"\n"
 "                          to read from standard input.\n"
+"\n"
+"  --interleaved-output    Write the uncombined pairs in interleaved format.\n"
 "\n"
 "  -o, --output-prefix=PREFIX\n"
 "                          Prefix of output files.  Default: \"out\".\n"
@@ -112,12 +118,11 @@ static void usage()
 "  -z, --compress          Compress the FASTQ output files with zlib.\n"
 "\n"
 "  -t, --threads=NTHREADS  Set the number of worker threads.  This is in\n"
-"                          addition to the I/O threads.  Ignored if support\n"
-"                          for multiple threads was not compiled in.  Default:\n"
-"                          number of processors.  Note: if you need FLASH's\n"
-"                          output to appear deterministically or in the same\n"
-"                          order as the original reads, you must specify\n"
-"                          -t 1 (--threads=1).\n"
+"                          addition to the I/O threads.  Default: number of\n"
+"                          processors.  Note: if you need FLASH's output to\n"
+"                          appear deterministically or in the same order as\n"
+"                          the original reads, you must specify -t 1\n"
+"                          (--threads=1).\n"
 "\n"
 "  -q, --quiet             Do not print informational messages.  (Implied with\n"
 "                          --to-stdout.)\n"
@@ -143,6 +148,11 @@ static void version()
 	puts("Report bugs to flash.comment@gmail.com");
 }
 
+enum {
+	INTERLEAVED_INPUT_OPTION = 257,
+	INTERLEAVED_OUTPUT_OPTION = 258,
+};
+
 static const char *optstring = "m:M:x:p:r:f:s:Io:d:czt:qhv";
 static const struct option longopts[] = {
 	{"min-overlap",          required_argument,  NULL, 'm'},
@@ -153,6 +163,8 @@ static const struct option longopts[] = {
 	{"fragment-len",         required_argument,  NULL, 'f'},
 	{"fragment-len-stddev",  required_argument,  NULL, 's'},
 	{"interleaved",          no_argument,        NULL, 'I'},
+	{"interleaved-input",    no_argument,        NULL,  INTERLEAVED_INPUT_OPTION},
+	{"interleaved-output",   no_argument,        NULL,  INTERLEAVED_OUTPUT_OPTION},
 	{"output-prefix",        required_argument,  NULL, 'o'},
 	{"output-directory",     required_argument,  NULL, 'd'},
 	{"to-stdout",            no_argument,        NULL, 'c'},
@@ -249,13 +261,11 @@ static void hist_inc(struct histogram *hist, unsigned long idx)
 	hist_add(hist, idx, 1);
 }
 
-#ifdef MULTITHREADED
 static void hist_combine(struct histogram *hist, const struct histogram *other)
 {
 	for (size_t i = 0; i < other->len; i++)
 		hist_add(hist, i, other->array[i]);
 }
-#endif
 
 static unsigned long hist_count_at(const struct histogram *hist,
 				   unsigned long idx)
@@ -346,7 +356,6 @@ write_error:
 	fatal_error_with_errno("Error writing to the file \"%s\"",
 			       histogram_file);
 }
-#ifdef MULTITHREADED
 
 struct common_combiner_thread_params {
 	struct threads *threads;
@@ -363,8 +372,7 @@ struct combiner_thread_params {
 	struct common_combiner_thread_params *common;
 };
 
-/* In the multi-threaded configuration of FLASH, this procedure is executed in
- * parallel by all the combiner threads. */
+/* This procedure is executed in parallel by all the combiner threads. */
 static void *combiner_thread_proc(void *__params)
 {
 	struct combiner_thread_params *params = __params;
@@ -586,8 +594,6 @@ no_more_reads:
 	return NULL;
 }
 
-#endif
-
 int main(int argc, char **argv)
 {
 	int max_overlap            = 0;
@@ -601,15 +607,14 @@ int main(int argc, char **argv)
 	const char *output_dir     = ".";
 	bool to_stdout             = false;
 	bool verbose               = true;
-	bool interleaved           = false;
+	bool interleaved_input     = false;
+	bool interleaved_output    = false;
 	gzFile mates1_gzf          = NULL;
 	gzFile mates2_gzf          = NULL;
 	void *out_combined_fp      = NULL;
 	void *out_notcombined_fp_1 = NULL;
 	void *out_notcombined_fp_2 = NULL;
-#ifdef MULTITHREADED
 	int num_combiner_threads   = 0;
-#endif
 	const struct file_operations *fops = &normal_fops;
 	int c;
 	char *tmp;
@@ -679,7 +684,14 @@ int main(int argc, char **argv)
 					    "option -r.");
 			break;
 		case 'I':
-			interleaved = true;
+			interleaved_input = true;
+			interleaved_output = true;
+			break;
+		case INTERLEAVED_INPUT_OPTION:
+			interleaved_input = true;
+			break;
+		case INTERLEAVED_OUTPUT_OPTION:
+			interleaved_output = true;
 			break;
 		case 'o':
 			prefix = optarg;
@@ -695,17 +707,12 @@ int main(int argc, char **argv)
 			fops = &gzip_fops;
 			break;
 		case 't':
-			#ifdef MULTITHREADED
 			num_combiner_threads = strtol(optarg, &tmp, 10);
 			if (tmp == optarg || *tmp || num_combiner_threads < 1) {
 				fatal_error("Number of threads must be "
 					    "a positive integer!  Please "
 					    "check option -t.");
 			}
-			#else
-			warning("Multiple threads not enabled; ignoring -t "
-				"option.");
-			#endif
 			break;
 		case 'q':
 			verbose = false;
@@ -737,21 +744,19 @@ int main(int argc, char **argv)
 			max_overlap, min_overlap);
 	}
 
-#ifdef MULTITHREADED
 	if (num_combiner_threads == 0)
 		num_combiner_threads = get_default_num_threads();
-#endif
 
 	argc -= optind;
 	argv += optind;
 
-	if ((interleaved && argc != 1) || (!interleaved && argc != 2)) {
+	if ((interleaved_input && argc != 1) || (!interleaved_input && argc != 2)) {
 		usage_short();
 		return 2;
 	}
 
 	mates1_gzf = xgzopen(argv[0], "r");
-	if (!interleaved)
+	if (!interleaved_input)
 		mates2_gzf = xgzopen(argv[1], "r");
 
 	mkdir_p(output_dir);
@@ -769,11 +774,16 @@ int main(int argc, char **argv)
 		sprintf(suffix, ".extendedFrags.fastq%s", fops->suffix);
 		out_combined_fp = fops->open_file(name_buf, "w");
 
-		sprintf(suffix, ".notCombined_1.fastq%s", fops->suffix);
-		out_notcombined_fp_1 = fops->open_file(name_buf, "w");
+		if (interleaved_output) {
+			sprintf(suffix, ".notCombined.fastq%s", fops->suffix);
+			out_notcombined_fp_1 = fops->open_file(name_buf, "w");
+		} else {
+			sprintf(suffix, ".notCombined_1.fastq%s", fops->suffix);
+			out_notcombined_fp_1 = fops->open_file(name_buf, "w");
 
-		sprintf(suffix, ".notCombined_2.fastq%s", fops->suffix);
-		out_notcombined_fp_2 = fops->open_file(name_buf, "w");
+			sprintf(suffix, ".notCombined_2.fastq%s", fops->suffix);
+			out_notcombined_fp_2 = fops->open_file(name_buf, "w");
+		}
 		*suffix = '\0';
 	}
 
@@ -783,14 +793,18 @@ int main(int argc, char **argv)
 		info(" ");
 		info("Input files:");
 		info("    %s", argv[0]);
-		if (!interleaved)
+		if (!interleaved_input)
 			info("    %s", argv[1]);
 		info(" ");
 		info("Output files:");
 		assert(!to_stdout);
 		info("    %s.extendedFrags.fastq%s", name_buf, fops->suffix);
-		info("    %s.notCombined_1.fastq%s", name_buf, fops->suffix);
-		info("    %s.notCombined_2.fastq%s", name_buf, fops->suffix);
+		if (interleaved_output) {
+			info("    %s.notCombined.fastq%s", name_buf, fops->suffix);
+		} else {
+			info("    %s.notCombined_1.fastq%s", name_buf, fops->suffix);
+			info("    %s.notCombined_2.fastq%s", name_buf, fops->suffix);
+		}
 		info("    %s.hist", name_buf);
 		info("    %s.histogram", name_buf);
 		info(" ");
@@ -798,12 +812,11 @@ int main(int argc, char **argv)
 		info("    Min overlap:          %d", min_overlap);
 		info("    Max overlap:          %d", max_overlap);
 		info("    Phred offset:         %d", phred_offset);
-	#ifdef MULTITHREADED
 		info("    Combiner threads:     %d", num_combiner_threads);
-	#endif
 		info("    Max mismatch density: %f", max_mismatch_density);
 		info("    Output format:        %s", fops->name);
-		info("    Interleaved reads:    %s", interleaved ? "true" : "false");
+		info("    Interleaved input:    %s", interleaved_input ? "true" : "false");
+		info("    Interleaved output:   %s", interleaved_output ? "true" : "false");
 		info(" ");
 	}
 
@@ -819,16 +832,12 @@ int main(int argc, char **argv)
 	 * if the -c / --to-stdout option is specified, write the combined reads
 	 * to standard output, and ignore the uncombined reads."
 	 *
-	 * Two separate implementations of this follow: one for the
-	 * single-threaded case, and one for the multi-threaded case.  In the
-	 * multi-threaded case, there are @num_combiner_threads combiner
-	 * threads created that will process the reads in parallel by retrieving
-	 * `struct read_set'-sized chunks of reads from the reader threads, and
+	 * There will be @num_combiner_threads combiner threads created that
+	 * will process the reads in parallel by retrieving `struct
+	 * read_set'-sized chunks of reads from the reader threads, and
 	 * providing `struct read_set'-sized chunks of combined or uncombined
 	 * reads to the writer threads.
 	 */
-
-#ifdef MULTITHREADED
 
 	/* Histogram of how many combined reads have a given length.
 	 *
@@ -893,73 +902,6 @@ int main(int argc, char **argv)
 	pthread_mutex_destroy(&common.unqueue_lock);
 	pthread_mutex_destroy(&common.queue_lock);
 	stop_fastq_readers_and_writers(&threads);
-#else /* !MULTITHREADED */
-
-	/* Histogram of how many combined reads have a given length.
-	 *
-	 * The zero index slot counts how many reads were not combined. */
-	struct histogram _combined_read_len_hist;
-	struct histogram *combined_read_len_hist = &_combined_read_len_hist;
-
-	hist_init(combined_read_len_hist);
-
-	unsigned long pair_no = 0;
-
-	/* The single-threaded code is much simpler than the multi-threaded
-	 * code; just have two `struct read's to keep using for the input reads,
-	 * and another `struct read' to use for combined sequence.  */
-
-	struct read read_1;
-	struct read read_2;
-	struct read combined_read;
-
-	init_read(&read_1);
-	init_read(&read_2);
-	init_read(&combined_read);
-
-	while (next_mate_pair(&read_1, &read_2,
-			      mates1_gzf, mates2_gzf, phred_offset))
-	{
-		if (verbose && ++pair_no % 25000 == 0)
-			info("Processed %lu read pairs", pair_no);
-		if (combine_reads(&read_1, &read_2, &combined_read, min_overlap,
-				  max_overlap, max_mismatch_density))
-		{
-			/* Combination was successful. */
-			get_combined_tag(&read_1, &read_2, &combined_read);
-			fops->write_read(&combined_read, out_combined_fp,
-				   	 phred_offset);
-			hist_inc(combined_read_len_hist,
-				 combined_read.seq_len);
-		} else {
-			/* Combination was unsuccessful. */
-			if (!to_stdout) {
-				fops->write_read(&read_1, out_notcombined_fp_1,
-						 phred_offset);
-				reverse_complement(read_2.seq,
-						   read_2.seq_len);
-				reverse(read_2.qual, read_2.seq_len);
-				fops->write_read(&read_2, out_notcombined_fp_2,
-						 phred_offset);
-			}
-			hist_inc(combined_read_len_hist, 0);
-		}
-	}
-	if (verbose) {
-		if (pair_no % 25000 != 0)
-			info("Processed %lu read pairs", pair_no);
-		info("Closing input and output FASTQ files");
-	}
-	gzclose(mates1_gzf);
-	gzclose(mates2_gzf);
-	fops->close_file(out_combined_fp);
-	fops->close_file(out_notcombined_fp_1);
-	fops->close_file(out_notcombined_fp_2);
-	destroy_read(&read_1);
-	destroy_read(&read_2);
-	destroy_read(&combined_read);
-#endif /* !MULTITHREADED */
-
 
 	/* The remainder is the same regardless of whether we are compiling for
 	 * multiple threads or not (and we are down to one thread at this point

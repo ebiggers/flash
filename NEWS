@@ -1,3 +1,11 @@
+Version 1.2.4
+-------------------
+- FLASH with the --interleaved option will now use an interleaved output format
+  in addition to assuming interleaved input.
+  Use --interleaved-input and --interleaved-output to specify only interleaved
+  input or only interleaved output, respectively.
+- The entirely single-threaded configuration of FLASH is no longer supported.
+
 Version 1.2.3
 -------------------
 - Support for interleaved reads (-I, --interleaved), which may be read from one

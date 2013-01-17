@@ -20,8 +20,8 @@ the C library, is the zlib data compression library.
 To install FLASH, download the tarball, untar it, and compile the code using the
 provided Makefile:
 
-$ tar xzf FLASH-1.2.3.tar.gz
-$ cd FLASH-1.2.3
+$ tar xzf FLASH-1.2.4.tar.gz
+$ cd FLASH-1.2.4
 $ make
 
 The executable file that is produced is named 'flash'.
@@ -35,12 +35,7 @@ processors; however, it can be adjusted with the -t  option (long option:
 When multiple combiner threads are used, the order of the combined and
 uncombined reads in the output files will be nondeterministic.  If you need to
 enforce that the output reads appear in the same order as the input, you must
-specify --threads=1, or compile FLASH without support for multiple threads (see
-below).
-
-FLASH may be configured at compile-time to be entirely single-threaded.  If you
-would like to do this, you may unset the 'MULTITHREADED' variable in the
-Makefile.
+specify --threads=1.
 
 				     USAGE
 
@@ -59,7 +54,8 @@ MANDATORY INPUT:
 To run FLASH, you must provide two FASTQ files of paired-end reads.
 Corresponding read pairs must be in the same order in both files.
 Alternatively, you may provide one FASTQ file containing interleaved
-paired-end reads, which may be standard input (specify "-" for this).
+paired-end reads, which may be standard input (see the --interleaved)
+option).
 
 OPTIONS:
 
@@ -122,10 +118,15 @@ OPTIONS:
                           standard deviation is 10% of the average fragment
                           length.
 
-  -I, --interleaved       Instead of requiring files MATES_1.FASTQ and
+  -I, --interleaved       Equivalent to specifying both --interleaved-input
+                          and --interleaved-output.
+
+  --interleaved-input     Instead of requiring files MATES_1.FASTQ and
                           MATES_2.FASTQ, allow a single file MATES.FASTQ that
                           has the paired-end reads interleaved.  Specify "-"
                           to read from standard input.
+
+  --interleaved-output    Write the uncombined pairs in interleaved format.
 
   -o, --output-prefix=PREFIX
                           Prefix of output files.  Default: "out".
@@ -140,12 +141,11 @@ OPTIONS:
   -z, --compress          Compress the FASTQ output files with zlib.
 
   -t, --threads=NTHREADS  Set the number of worker threads.  This is in
-                          addition to the I/O threads.  Ignored if support
-                          for multiple threads was not compiled in.  Default:
-                          number of processors.  Note: if you need FLASH's
-                          output to appear deterministically or in the same
-                          order as the original reads, you must specify
-                          -t 1 (--threads=1).
+                          addition to the I/O threads.  Default: number of
+                          processors.  Note: if you need FLASH's output to
+                          appear deterministically or in the same order as
+                          the original reads, you must specify -t 1
+                          (--threads=1).
 
   -q, --quiet             Do not print informational messages.  (Implied with
                           --to-stdout.)

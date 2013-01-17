@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <semaphore.h>
 
 #include "fastq.h"
 #include "util.h"
@@ -212,8 +213,6 @@ void destroy_read(struct read *r)
 	free(r->qual);
 }
 
-#ifdef MULTITHREADED
-
 void free_read(struct read *r)
 {
 	if (r) {
@@ -246,8 +245,6 @@ void free_read_set(struct read_set *p)
 		free(p);
 	}
 }
-
-#include <semaphore.h>
 
 /*
  * Producer-consumer queue; it holds pointers to `struct read_sets', which can
@@ -331,237 +328,318 @@ void read_queue_put(struct read_queue *q, struct read_set *r)
 	sem_post(&q->q_lock);
 }
 
-
-/* Parameters structure to pass to the reader and writer threads */
-struct reader_writer_params {
-	struct read_queue *free_q;
-	struct read_queue *ready_q;
-	struct read_queue *extra_free_q;
-	struct read_queue *extra_ready_q;
-	void *fp;
-	const struct file_operations *fops;
+struct common_reader_params {
 	int phred_offset;
 	int num_combiner_threads;
 	bool verbose;
+	gzFile fp;
 };
 
-static struct reader_writer_params *
-new_reader_writer_params(size_t q_size, void *fp,
-			 const struct file_operations *fops, int phred_offset,
-			 struct read_queue *free_q, int num_combiner_threads,
-			 bool verbose, bool interleaved)
+struct reader_params {
+	struct common_reader_params common;
+	struct read_queue *free_q;
+	struct read_queue *ready_q;
+};
+
+struct interleaved_reader_params {
+	struct common_reader_params common;
+	struct read_queue *free_q_1;
+	struct read_queue *ready_q_1;
+	struct read_queue *free_q_2;
+	struct read_queue *ready_q_2;
+};
+
+struct common_writer_params {
+	int phred_offset;
+	int num_combiner_threads;
+	void *fp;
+	const struct file_operations *fops;
+};
+
+struct writer_params {
+	struct common_writer_params common;
+	struct read_queue *free_q;
+	struct read_queue *ready_q;
+};
+
+struct interleaved_writer_params {
+	struct common_writer_params common;
+	struct read_queue *free_q_1;
+	struct read_queue *ready_q_1;
+	struct read_queue *free_q_2;
+	struct read_queue *ready_q_2;
+};
+
+
+static void init_common_reader_params(struct common_reader_params *params,
+				      gzFile fp, int phred_offset,
+				      int num_combiner_threads, bool verbose)
 {
-	struct reader_writer_params *p;
-
-	p = xmalloc(sizeof(struct reader_writer_params));
-	if (free_q)
-		p->free_q = free_q;
-	else
-		p->free_q = new_read_queue(q_size, true);
-
-	if (interleaved) {
-		p->extra_free_q = new_read_queue(q_size, true);
-		p->extra_ready_q = new_read_queue(q_size, false);
-	} else {
-		p->extra_free_q = NULL;
-		p->extra_ready_q = NULL;
-	}
-
-	p->ready_q = new_read_queue(q_size, false);
-	p->fp = fp;
-	p->fops = fops;
-	p->phred_offset = phred_offset;
-	p->num_combiner_threads = num_combiner_threads;
-	p->verbose = verbose;
-	return p;
+	params->fp = fp;
+	params->phred_offset = phred_offset;
+	params->num_combiner_threads = num_combiner_threads;
+	params->verbose = verbose;
 }
 
-/*
- * This is the procedure that is executed by the reader threads.
- *
- * Each one of these threads repeatedly reads the next read from a FASTQ file.
- * It retrieves a `struct read_set' from the "free" queue, then fills it up with
- * these reads.  When the read set it is full, it places it the on "ready" queue
- * for the combiner thread to retrieve.
- *
- * In the event of EOF, we need to signal each combiner thread by providing a
- * `struct read_set' that contains a NULL pointer as one of these reads.
- */
-static void *fastq_reader_thread_proc(void *p)
+static void init_common_writer_params(struct common_writer_params *params,
+				      void *fp, const struct file_operations *fops,
+				      int phred_offset, int num_combiner_threads)
 {
-	struct reader_writer_params *params = p;
+	params->fp = fp;
+	params->fops = fops;
+	params->phred_offset = phred_offset;
+	params->num_combiner_threads = num_combiner_threads;
+}
 
-	gzFile fp = (gzFile)params->fp;
-	int phred_offset = params->phred_offset;
+static void *fastq_reader_thread_proc(void *_params)
+{
+	struct reader_params *params = _params;
+	void *fp = params->common.fp;
+	int phred_offset = params->common.phred_offset;
+	bool verbose = params->common.verbose;
 	unsigned i;
 	unsigned long pair_no = 0;
-	struct read_set *r1 = NULL, *r2 = NULL;
-	struct read_set *r = NULL;
+	struct read_set *r;
 
-	if (params->extra_free_q) {
-		/* Interleaved reads */
-		while (1) {
-			r1 = read_queue_get(params->free_q);
-			r2 = read_queue_get(params->extra_free_q);
-			for (i = 0; i < READS_PER_READ_SET; i++) {
-				if (!next_read(r1->reads[i], fp, phred_offset))
-					goto out;
-				if (!next_read(r2->reads[i], fp, phred_offset)) {
-					fatal_error("Found odd number of reads "
-						    "in interleaved reads file");
-				}
-				if (params->verbose && ++pair_no % 25000 == 0)
-					info("Processed %lu read pairs", pair_no);
-			}
-			read_queue_put(params->ready_q, r1);
-			read_queue_put(params->extra_ready_q, r2);
+	while (1) {
+		r = read_queue_get(params->free_q);
+		for (i = 0; i < READS_PER_READ_SET; i++) {
+			if (!next_read(r->reads[i], fp, phred_offset))
+				goto out;
+			if (verbose && ++pair_no % 25000 == 0)
+				info("Processed %lu read pairs", pair_no);
 		}
-	} else {
-		/* Non-interleaved reads */
-		while (1) {
-			r = read_queue_get(params->free_q);
-			for (i = 0; i < READS_PER_READ_SET; i++) {
-				if (!next_read(r->reads[i], fp, phred_offset))
-					goto out;
-				if (params->verbose && ++pair_no % 25000 == 0)
-					info("Processed %lu read pairs", pair_no);
-			}
-			read_queue_put(params->ready_q, r);
-		}
+		read_queue_put(params->ready_q, r);
 	}
 out:
-	if (params->verbose && pair_no % 25000 != 0)
+	if (verbose && pair_no % 25000 != 0)
 		info("Processed %lu read pairs", pair_no);
 
-	if (params->extra_free_q) {
-		free_read(r1->reads[i]);
-		free_read(r2->reads[i]);
-		r1->reads[i] = NULL;
-		r2->reads[i] = NULL;
-		read_queue_put(params->ready_q, r1);
-		read_queue_put(params->extra_ready_q, r2);
-		for (int j = 1; j < params->num_combiner_threads; j++) {
-			r1 = read_queue_get(params->free_q);
-			free_read(r1->reads[0]);
-			r1->reads[0] = NULL;
-			read_queue_put(params->ready_q, r1);
-
-			r2 = read_queue_get(params->extra_free_q);
-			free_read(r2->reads[0]);
-			r2->reads[0] = NULL;
-			read_queue_put(params->extra_ready_q, r2);
-		}
-	} else {
-		free_read(r->reads[i]);
-		r->reads[i] = NULL;
+	free_read(r->reads[i]);
+	r->reads[i] = NULL;
+	read_queue_put(params->ready_q, r);
+	for (int j = 1; j < params->common.num_combiner_threads; j++) {
+		r = read_queue_get(params->free_q);
+		free_read(r->reads[0]);
+		r->reads[0] = NULL;
 		read_queue_put(params->ready_q, r);
-		for (int j = 1; j < params->num_combiner_threads; j++) {
-			r = read_queue_get(params->free_q);
-			free_read(r->reads[0]);
-			r->reads[0] = NULL;
-			read_queue_put(params->ready_q, r);
-		}
 	}
 	gzclose(fp);
 	free(params);
 	return NULL;
 }
 
-/*
- * This is the procedure that is executed by the writer threads.
- *
- * Each of these threads repeatedly retrieves a read set from the "ready" queue
- * and writes the reads contained in it to a FASTQ file.
- *
- * After writing the reads contained in a read set, the read set is returned to
- * the "free" queue so that the memory is recycled.
- *
- * If a read is NULL, this is the signal for the last read; when this has
- * happened one time for each combiner thread, the output file is closed and the
- * writer thread exits.
- */
-static void *fastq_writer_thread_proc(void *p)
+static void *fastq_interleaved_reader_thread_proc(void *_params)
 {
-	struct reader_writer_params *params = p;
+	struct interleaved_reader_params *params = _params;
+	void *fp = params->common.fp;
+	int phred_offset = params->common.phred_offset;
+	bool verbose = params->common.verbose;
+	unsigned i;
+	unsigned long pair_no = 0;
+	struct read_set *r1, *r2;
 
-	struct read_queue *free_q = params->free_q;
-	struct read_queue *ready_q = params->ready_q;
-	void *fp = params->fp;
-	int phred_offset = params->phred_offset;
+	while (1) {
+		r1 = read_queue_get(params->free_q_1);
+		r2 = read_queue_get(params->free_q_2);
+		for (i = 0; i < READS_PER_READ_SET; i++) {
+			if (!next_read(r1->reads[i], fp, phred_offset))
+				goto out;
+			if (!next_read(r2->reads[i], fp, phred_offset)) {
+				fatal_error("Found odd number of reads "
+					    "in interleaved reads file");
+			}
+			if (verbose && ++pair_no % 25000 == 0)
+				info("Processed %lu read pairs", pair_no);
+		}
+		read_queue_put(params->ready_q_1, r1);
+		read_queue_put(params->ready_q_2, r2);
+	}
 
-	write_read_t write_read = params->fops->write_read;
+out:
+	if (verbose && pair_no % 25000 != 0)
+		info("Processed %lu read pairs", pair_no);
 
+	free_read(r1->reads[i]);
+	free_read(r2->reads[i]);
+	r1->reads[i] = NULL;
+	r2->reads[i] = NULL;
+	read_queue_put(params->ready_q_1, r1);
+	read_queue_put(params->ready_q_2, r2);
+	for (int j = 1; j < params->common.num_combiner_threads; j++) {
+		r1 = read_queue_get(params->free_q_1);
+		free_read(r1->reads[0]);
+		r1->reads[0] = NULL;
+		read_queue_put(params->ready_q_1, r1);
+
+		r2 = read_queue_get(params->free_q_2);
+		free_read(r2->reads[0]);
+		r2->reads[0] = NULL;
+		read_queue_put(params->ready_q_2, r2);
+	}
+	gzclose(fp);
+	free(params);
+	return NULL;
+}
+
+static void *fastq_writer_thread_proc(void *_params)
+{
+	struct writer_params *params = _params;
+	write_read_t write_read = params->common.fops->write_read;
+	int phred_offset = params->common.phred_offset;
+	void *fp = params->common.fp;
 	int num_poisons = 0;
 	struct read_set *r;
+
 	while (1) {
-		r = read_queue_get(ready_q);
+		r = read_queue_get(params->ready_q);
 		for (unsigned i = 0; i < READS_PER_READ_SET; i++) {
 			if (!r->reads[i]) {
-				if (++num_poisons == params->num_combiner_threads)
+				if (++num_poisons == params->common.num_combiner_threads)
 					goto out;
 				else
 					break;
 			}
 			write_read(r->reads[i], fp, phred_offset);
 		}
-		read_queue_put(free_q, r);
+		read_queue_put(params->free_q, r);
 	}
 out:
-	read_queue_put(free_q, r);
-	params->fops->close_file(fp);
+	read_queue_put(params->free_q, r);
+	params->common.fops->close_file(fp);
 	free(params);
 	return NULL;
 }
 
-/* Launches a FASTQ reader thread. */
-static void start_fastq_reader(void *fp, int phred_offset,
-			       struct thread *thread,
-			       struct thread *extra_thread,
-			       int num_combiner_threads,
-			       size_t queue_size,
-			       bool verbose)
+static void *fastq_interleaved_writer_thread_proc(void *_params)
 {
-	struct reader_writer_params *p;
-	int ret;
+	struct interleaved_writer_params *params = _params;
+	write_read_t write_read = params->common.fops->write_read;
+	int phred_offset = params->common.phred_offset;
+	void *fp = params->common.fp;
+	int num_poisons = 0;
+	struct read_set *r1, *r2;
 
-	p = new_reader_writer_params(queue_size, fp, NULL, phred_offset,
-				     NULL, num_combiner_threads, verbose,
-				     (extra_thread != NULL));
-	thread->free_q = p->free_q;
-	thread->ready_q = p->ready_q;
-	if (extra_thread) {
-		extra_thread->free_q = p->extra_free_q;
-		extra_thread->ready_q = p->extra_ready_q;
+	while (1) {
+		r1 = read_queue_get(params->ready_q_1);
+		r2 = read_queue_get(params->ready_q_2);
+		for (unsigned i = 0; i < READS_PER_READ_SET; i++) {
+			if (r1->reads[i] == NULL) {
+				assert(r2->reads[i] == NULL);
+				if (++num_poisons == params->common.num_combiner_threads)
+					goto out;
+				else
+					break;
+			}
+			assert(r2->reads[i] != NULL);
+			write_read(r1->reads[i], fp, phred_offset);
+			write_read(r2->reads[i], fp, phred_offset);
+		}
+		read_queue_put(params->free_q_1, r1);
+		read_queue_put(params->free_q_2, r2);
 	}
-	ret = pthread_create(&thread->pthread, NULL,
-			     fastq_reader_thread_proc, p);
-	if (ret != 0)
-		fatal_error_with_errno("Could not create FASTQ reader thread");
+out:
+	read_queue_put(params->free_q_1, r1);
+	read_queue_put(params->free_q_2, r2);
+	params->common.fops->close_file(fp);
+	free(params);
+	return NULL;
 }
 
-/* Launches a FASTQ writer thread. */
-static void start_fastq_writer(void *fp, int phred_offset,
-			       const struct file_operations *fops,
-			       struct thread *thread,
-			       struct read_queue *free_q, size_t queue_size,
-			       int num_combiner_threads)
+static void start_noninterleaved_fastq_reader(gzFile fp,
+					      int phred_offset,
+					      int num_combiner_threads,
+					      bool verbose,
+					      struct thread *thread,
+					      struct read_queue *free_q,
+					      struct read_queue *ready_q)
 {
-	struct reader_writer_params *p;
-	int ret;
-
-	p = new_reader_writer_params(queue_size, fp, fops, phred_offset,
-				     free_q, num_combiner_threads,
-				     false, false);
-	thread->free_q = p->free_q;
-	thread->ready_q = p->ready_q;
-	ret = pthread_create(&thread->pthread, NULL,
-			     fastq_writer_thread_proc, p);
-	if (ret != 0)
-		fatal_error_with_errno("Could not create FASTQ writer thread");
+	struct reader_params *params = xmalloc(sizeof *params);
+	init_common_reader_params(&params->common, fp, phred_offset,
+				  num_combiner_threads, verbose);
+	params->free_q = free_q;
+	params->ready_q = ready_q;
+	if (pthread_create(&thread->pthread, NULL,
+			   fastq_reader_thread_proc, params))
+	{
+		fatal_error_with_errno("Could not create FASTQ reader thread");
+	}
 }
+
+static void start_interleaved_fastq_reader(gzFile fp,
+					   int phred_offset,
+					   int num_combiner_threads,
+					   bool verbose,
+					   struct thread *thread,
+					   struct read_queue *free_q_1,
+					   struct read_queue *ready_q_1,
+					   struct read_queue *free_q_2,
+					   struct read_queue *ready_q_2)
+{
+	struct interleaved_reader_params *params = xmalloc(sizeof *params);
+	init_common_reader_params(&params->common, fp, phred_offset,
+				  num_combiner_threads, verbose);
+	params->free_q_1 = free_q_1;
+	params->ready_q_1 = ready_q_1;
+	params->free_q_2 = free_q_2;
+	params->ready_q_2 = ready_q_2;
+	if (pthread_create(&thread->pthread, NULL,
+			   fastq_interleaved_reader_thread_proc, params))
+	{
+		fatal_error_with_errno("Could not create FASTQ reader thread");
+	}
+}
+
+
+static void start_noninterleaved_fastq_writer(void *fp,
+					      const struct file_operations *fops,
+					      int phred_offset,
+					      int num_combiner_threads,
+					      struct thread *thread,
+					      struct read_queue *free_q,
+					      struct read_queue *ready_q)
+{
+	struct writer_params *params = xmalloc(sizeof *params);
+	init_common_writer_params(&params->common,
+				  fp, fops, phred_offset, num_combiner_threads);
+	params->free_q = free_q;
+	params->ready_q = ready_q;
+	if (pthread_create(&thread->pthread, NULL,
+			   fastq_writer_thread_proc, params))
+	{
+		fatal_error_with_errno("Could not create FASTQ writer thread");
+	}
+}
+
+static void start_interleaved_fastq_writer(void *fp,
+					   const struct file_operations *fops,
+					   int phred_offset,
+					   int num_combiner_threads,
+					   struct thread *thread,
+					   struct read_queue *free_q_1,
+					   struct read_queue *ready_q_1,
+					   struct read_queue *free_q_2,
+					   struct read_queue *ready_q_2)
+{
+	struct interleaved_writer_params *params = xmalloc(sizeof *params);
+	init_common_writer_params(&params->common,
+				  fp, fops, phred_offset, num_combiner_threads);
+	params->free_q_1 = free_q_1;
+	params->ready_q_1 = ready_q_1;
+	params->free_q_2 = free_q_2;
+	params->ready_q_2 = ready_q_2;
+
+	if (pthread_create(&thread->pthread, NULL,
+			   fastq_interleaved_writer_thread_proc, params))
+	{
+		fatal_error_with_errno("Could not create FASTQ writer thread");
+	}
+}
+
 
 /* Starts the FASTQ readers and writers needed for the FLASH program to run. */
-void start_fastq_readers_and_writers(void *mates1_gzf, void *mates2_gzf,
+void start_fastq_readers_and_writers(void *mates1_gzf,
+				     void *mates2_gzf,
 				     void *out_combined_fp,
 				     void *out_notcombined_fp_1,
 				     void *out_notcombined_fp_2,
@@ -576,31 +654,71 @@ void start_fastq_readers_and_writers(void *mates1_gzf, void *mates2_gzf,
 	if (verbose)
 		info("Starting FASTQ readers and writer threads");
 
-	start_fastq_reader(mates1_gzf, phred_offset, &threads->reader_1,
-			   (mates2_gzf ? NULL : &threads->reader_2),
-			   num_combiner_threads, queue_size, verbose);
+	threads->reader_1.free_q             = new_read_queue(queue_size, true);
+	threads->reader_1.ready_q            = new_read_queue(queue_size, false);
+	threads->reader_2.free_q             = new_read_queue(queue_size, true);
+	threads->reader_2.ready_q            = new_read_queue(queue_size, false);
+	threads->writer_combined.free_q      = new_read_queue(queue_size, true);
+	threads->writer_combined.ready_q     = new_read_queue(queue_size, false);
+	threads->writer_uncombined_1.free_q  = threads->reader_1.free_q;
+	threads->writer_uncombined_1.ready_q = new_read_queue(queue_size, false);
+	threads->writer_uncombined_2.free_q  = threads->reader_2.free_q;
+	threads->writer_uncombined_2.ready_q = new_read_queue(queue_size, false);
 
-	if (mates2_gzf)
-		start_fastq_reader(mates2_gzf, phred_offset,
-				   &threads->reader_2, NULL,
-				   num_combiner_threads,
-				   queue_size, false);
-	else
+	if (mates2_gzf) {
+		start_noninterleaved_fastq_reader(mates1_gzf, phred_offset,
+						  num_combiner_threads, verbose,
+						  &threads->reader_1,
+						  threads->reader_1.free_q,
+						  threads->reader_1.ready_q);
+
+		start_noninterleaved_fastq_reader(mates2_gzf, phred_offset,
+						  num_combiner_threads, false,
+						  &threads->reader_2,
+						  threads->reader_2.free_q,
+						  threads->reader_2.ready_q);
+	} else {
+		start_interleaved_fastq_reader(mates1_gzf, phred_offset,
+					       num_combiner_threads, verbose,
+					       &threads->reader_1,
+					       threads->reader_1.free_q,
+					       threads->reader_1.ready_q,
+					       threads->reader_2.free_q,
+					       threads->reader_2.ready_q);
 		threads->reader_2.pthread = (pthread_t)-1;
+	}
 
-	start_fastq_writer(out_combined_fp, phred_offset, fops,
-			   &threads->writer_combined, NULL, queue_size,
-			   num_combiner_threads);
+	/* combined reads are not paired and therefore are non-interleaved */
+	start_noninterleaved_fastq_writer(out_combined_fp, fops, phred_offset,
+					  num_combiner_threads,
+					  &threads->writer_combined,
+					  threads->writer_combined.free_q,
+					  threads->writer_combined.ready_q);
 
-	start_fastq_writer(out_notcombined_fp_1, phred_offset, fops,
-			   &threads->writer_uncombined_1,
-			   threads->reader_1.free_q, queue_size,
-			   num_combiner_threads);
+	if (out_notcombined_fp_2) {
+		/* non-interleaved output for uncombined reads */
+		start_noninterleaved_fastq_writer(out_notcombined_fp_1, fops,
+						  phred_offset, num_combiner_threads,
+						  &threads->writer_uncombined_1,
+						  threads->writer_uncombined_1.free_q,
+						  threads->writer_uncombined_1.ready_q);
 
-	start_fastq_writer(out_notcombined_fp_2, phred_offset, fops,
-			   &threads->writer_uncombined_2,
-			   threads->reader_2.free_q, queue_size,
-			   num_combiner_threads);
+		start_noninterleaved_fastq_writer(out_notcombined_fp_2, fops,
+						  phred_offset, num_combiner_threads,
+						  &threads->writer_uncombined_2,
+						  threads->writer_uncombined_2.free_q,
+						  threads->writer_uncombined_2.ready_q);
+	} else {
+		/* interleaved output for uncombined reads */
+		start_interleaved_fastq_writer(out_notcombined_fp_1, fops,
+					       phred_offset, num_combiner_threads,
+					       &threads->writer_uncombined_1,
+					       threads->writer_uncombined_1.free_q,
+					       threads->writer_uncombined_1.ready_q,
+					       threads->writer_uncombined_2.free_q,
+					       threads->writer_uncombined_2.ready_q);
+		threads->writer_uncombined_2.pthread = (pthread_t)-1;
+	}
 }
 
 /* Waits for all the reader and writer threads to exit, then free the read
@@ -623,9 +741,15 @@ void stop_fastq_readers_and_writers(const struct threads *threads)
 	if (pthread_join(threads->writer_uncombined_1.pthread, NULL) != 0)
 		fatal_error_with_errno("Failed to join uncombined fragments "
 				       "writer thread #1");
-	if (pthread_join(threads->writer_uncombined_2.pthread, NULL) != 0)
-		fatal_error_with_errno("Failed to join uncombined fragments "
-				       "writer thread #2");
+
+	if (threads->writer_uncombined_2.pthread != (pthread_t)-1) {
+		if (pthread_join(threads->writer_uncombined_2.pthread, NULL) != 0)
+			fatal_error_with_errno("Failed to join uncombined fragments "
+					       "writer thread #2");
+	} else {
+		/* Interleaved reads--- only had one uncombined read writer
+		 * thread */
+	}
 	free_read_queue(threads->reader_1.free_q);
 	free_read_queue(threads->reader_2.free_q);
 	free_read_queue(threads->reader_1.ready_q);
@@ -635,42 +759,3 @@ void stop_fastq_readers_and_writers(const struct threads *threads)
 	free_read_queue(threads->writer_combined.free_q);
 	free_read_queue(threads->writer_combined.ready_q);
 }
-
-#else /* MULTITHREADED */
-
-/*
- * Reads the next mate pair from the FASTQ files @mates1_gzf and @mates2_gzf.
- *
- * Whitespace is stripped from the ends of the sequences, tags, and quality
- * scores.
- *
- * The sequences are translated into only the characters A, C, G, T, and N,
- * while the quality values are re-scaled to start at 0.
- *
- * The sequence of the second read is reverse complemented, so that the reads go
- * in the same direction rather than being oriented in opposite directions on
- * opposite strands.
- *
- * Returns true on success, false on EOF.  Aborts on read error.
- */
-bool next_mate_pair(struct read *read_1, struct read *read_2, gzFile mates1_gzf,
-		    gzFile mates2_gzf, int phred_offset)
-{
-	if (!next_read(read_1, mates1_gzf, phred_offset))
-		return false;
-	if (mates2_gzf) {
-		if (!next_read(read_2, mates2_gzf, phred_offset))
-			return false;
-	} else {
-		/* Interleaved reads */
-		if (!next_read(read_2, mates1_gzf, phred_offset)) {
-			fatal_error("Found odd number of reads in "
-				    "interleaved reads file");
-		}
-	}
-	reverse_complement(read_2->seq, read_2->seq_len);
-	reverse(read_2->qual, read_2->seq_len);
-	return true;
-}
-
-#endif /* !MULTITHREADED */
