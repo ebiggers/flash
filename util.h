@@ -35,15 +35,15 @@ typedef void (*close_file_t)(void *);
 typedef void (*write_read_t)(struct read *read, void *fp, int phred_offset);
 
 struct file_operations {
-	const char *name;
-	const char *suffix;
-	const open_file_t  open_file;
-	const close_file_t close_file;
-	const write_read_t write_read;
+	char *name;
+	char *suffix;
+	open_file_t  open_file;
+	close_file_t close_file;
+	write_read_t write_read;
 };
 
-extern const struct file_operations gzip_fops;
-extern const struct file_operations normal_fops;
+extern struct file_operations gzip_fops;
+extern struct file_operations normal_fops;
 extern struct file_operations pipe_fops;
 extern char *compress_prog;
 extern char *compress_prog_args;

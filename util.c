@@ -108,28 +108,25 @@ unsigned get_default_num_threads()
 void *xmalloc(size_t size)
 {
 	void *p = malloc(size);
-	if (!p) {
-		fatal_error("Out of memory: tried to allocate %lu bytes",
-			     size);
-	}
+	if (!p)
+		fatal_error("Out of memory: tried to allocate %zu bytes", size);
 	return p;
 }
 
 void *xrealloc(void *ptr, size_t size)
 {
 	void *p = realloc(ptr, size);
-	if (!p) {
-		fatal_error("Out of memory: tried to reallocate %lu bytes",
-			     size);
-	}
+	if (!p)
+		fatal_error("Out of memory: tried to reallocate %zu bytes", size);
 	return p;
 }
 
-/* fopen(), exiting the program with failure status if file open fails. */
+/* fopen(), exiting the program with failure status if file open fails, and
+ * interpreting "-" as standard output.  */
 void *xfopen(const char *filename, const char *mode)
 {
 	if (strcmp(filename, "-") == 0)
-		return (void*)stdout;
+		return stdout;
 
 	FILE *fp = fopen(filename, mode);
 	if (!fp) {
@@ -137,9 +134,11 @@ void *xfopen(const char *filename, const char *mode)
 			    filename,
 			    strchr(mode, 'w') ? "writing" : "reading");
 	}
-	return (void*)fp;
+	return fp;
 }
 
+/* gzopen(), exiting the program with failure status if file open fails, and
+ * interpreting "-" as standard output.  */
 void *xgzopen(const char *filename, const char *mode)
 {
 	gzFile f;
@@ -164,22 +163,33 @@ void *xgzopen(const char *filename, const char *mode)
 			fatal_error("zlib error opening \"%s\": %s",
 				    filename, err_str);
 	}
-	return (void*)f;
+	return f;
 }
 
+/* Open a pipe to the compression command @compress_prog (global variable),
+ * redirecting the output to the file @filename.  If @filename is "-", the
+ * compressed data is sent to stdout. */
 void *xpopen(const char *filename, const char *mode)
 {
 	size_t len = strlen(compress_prog) + 100 +
 		     strlen(filename) + strlen(compress_prog_args);
 
 	char command[len + 1];
-	sprintf(command, "%s %s -c -z - > '%s'", compress_prog,
-		compress_prog_args, filename);
+
+	if (filename[0] == '-' && filename[1] == '\0') {
+		/* write to stdout */
+		sprintf(command, "%s %s -c -", compress_prog,
+			compress_prog_args);
+	} else {
+		/* redirect to a file */
+		sprintf(command, "%s %s -c - > '%s'", compress_prog,
+			compress_prog_args, filename);
+	}
 
 	FILE *fp = popen(command, mode);
 	if (!fp)
 		fatal_error_with_errno("Could not launch the command \"%s\"", command);
-	return (void*)fp;
+	return fp;
 }
 
 void xfclose(void *fp)

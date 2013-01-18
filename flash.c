@@ -28,11 +28,23 @@ static void usage()
 "\n"
 "MANDATORY INPUT:\n"
 "\n"
-"To run FLASH, you must provide two FASTQ files of paired-end reads.\n"
-"Corresponding read pairs must be in the same order in both files.\n"
-"Alternatively, you may provide one FASTQ file containing interleaved\n"
-"paired-end reads, which may be standard input (see the --interleaved)\n"
-"option).\n"
+"To run FLASH, you may provide two FASTQ files of paired-end reads\n"
+"where corresponding paired reads are in the same order in both files.\n"
+"Alternatively, you may provide one FASTQ file, which may be standard input,\n"
+"containing interleaved paired-end reads (see the --interleaved option).\n"
+"The input FASTQ files may be either plain-text or compressed with gzip.\n"
+"Other compression formats for the input files are not yet supported.\n"
+"\n"
+"OUTPUT:\n"
+"\n"
+"The default output of FLASH is a FASTQ file containing the extended fragments\n"
+"produced by combining read pairs, two FASTQ files containing read pairs\n"
+"that were not combined, and histogram files that show the distribution of\n"
+"lengths of the extended fragments.  Writing the uncombined read pairs to an\n"
+"interleaved FASTQ file is also supported.  Also, writing the extended\n"
+"fragments directly to standard output is supported.  Plain-text and gzip\n"
+"output formats are natively supported; other output formats are supported\n"
+"indirectly via the --compress-prog option.  (Note that this is all FASTQ.)\n"
 "\n"
 "OPTIONS:\n"
 "\n"
@@ -95,15 +107,15 @@ static void usage()
 "                          standard deviation is 10% of the average fragment\n"
 "                          length.\n"
 "\n"
-"  -I, --interleaved       Equivalent to specifying both --interleaved-input\n"
-"                          and --interleaved-output.\n"
-"\n"
 "  --interleaved-input     Instead of requiring files MATES_1.FASTQ and\n"
 "                          MATES_2.FASTQ, allow a single file MATES.FASTQ that\n"
 "                          has the paired-end reads interleaved.  Specify \"-\"\n"
 "                          to read from standard input.\n"
 "\n"
 "  --interleaved-output    Write the uncombined pairs in interleaved format.\n"
+"\n"
+"  -I, --interleaved       Equivalent to specifying both --interleaved-input\n"
+"                          and --interleaved-output.\n"
 "\n"
 "  -o, --output-prefix=PREFIX\n"
 "                          Prefix of output files.  Default: \"out\".\n"
@@ -119,24 +131,24 @@ static void usage()
 "                          Similar to specifying --compress-prog=gzip and\n"
 "                          --suffix=gz, but may be slightly faster.\n"
 "\n"
-"  --compress-prog=PROG\n"
-"                          Pipe the output through the compression program\n"
-"                          PROG, which will be called as `PROG -c -z -',\n"
-"                          plus any arguments specified by --compress-prog-args,\n"
-"                          to read uncompressed data from standard input and\n"
-"                          write compressed data to standard output.\n"
+"  --compress-prog=PROG    Pipe the output through the compression program\n"
+"                          PROG, which will be called as `PROG -c -',\n"
+"                          plus any arguments specified by --compress-prog-args.\n"
+"                          PROG must read uncompressed data from standard input\n"
+"                          and write compressed data to standard output.\n"
+"                          Examples: gzip, bzip2, xz, pigz.\n"
 "\n"
 "  --compress-prog-args=ARGS\n"
-"                          A string of argugments that will be passed to the\n"
+"                          A string of arguments that will be passed to the\n"
 "                          compression program if one is specified with\n"
-"                          --compress-prog.  Note: the arguments -z and -c\n"
-"                          are already assumed.\n"
+"                          --compress-prog.  Note: the argument -c is already\n"
+"                          assumed.\n"
 "\n"
-"  --suffix=SUFFIX\n"
-"                          Use SUFFIX as the suffix of the output files.\n"
-"                          A dot before the suffix is assumed, unless an\n"
-"                          empty suffix is provided.  Default: nothing;\n"
-"                          or 'gz' if -z is specified; or PROG if\n"
+"  --suffix=SUFFIX, --output-suffix=SUFFIX\n"
+"                          Use SUFFIX as the suffix of the output files\n"
+"                          after \".fastq\".  A dot before the suffix is assumed,\n"
+"                          unless an empty suffix is provided.  Default:\n"
+"                          nothing; or 'gz' if -z is specified; or PROG if\n"
 "                          --compress-prog is specified.\n"
 "\n"
 "  -t, --threads=NTHREADS  Set the number of worker threads.  This is in\n"
@@ -165,9 +177,9 @@ static void usage_short()
 
 static void version()
 {
-	puts("FLASH " VERSION_STR "\n");
-	puts("License:  GNU General Public License Version 3+");
-	puts("Report bugs to flash.comment@gmail.com");
+	puts("FLASH " VERSION_STR);
+	puts("License:  GNU General Public License Version 3+ (http://gnu.org/licenses/gpl.html)");
+	puts("Report bugs to flash.comment@gmail.com or https://sourceforge.net/p/flashpage/bugs");
 }
 
 enum {
@@ -197,6 +209,7 @@ static const struct option longopts[] = {
 	{"compress-prog",        required_argument,  NULL, COMPRESS_PROG_OPTION},
 	{"compress-prog-args",   required_argument,  NULL, COMPRESS_PROG_ARGS_OPTION},
 	{"suffix",               required_argument,  NULL, SUFFIX_OPTION},
+	{"output-suffix",        required_argument,  NULL, SUFFIX_OPTION},
 	{"threads",              required_argument,  NULL, 't'},
 	{"quiet",                no_argument,        NULL, 'q'},
 	{"help",                 no_argument,        NULL, 'h'},
@@ -396,14 +409,14 @@ struct common_combiner_thread_params {
 };
 
 struct combiner_thread_params {
-	struct histogram *combined_read_len_hist;
 	struct common_combiner_thread_params *common;
+	struct histogram *combined_read_len_hist;
 };
 
 /* This procedure is executed in parallel by all the combiner threads. */
-static void *combiner_thread_proc(void *__params)
+static void *combiner_thread_proc(void *_params)
 {
-	struct combiner_thread_params *params = __params;
+	struct combiner_thread_params *params = _params;
 
 	struct histogram *combined_read_len_hist = params->combined_read_len_hist;
 	struct threads *threads = params->common->threads;
@@ -642,9 +655,10 @@ int main(int argc, char **argv)
 	void *out_combined_fp      = NULL;
 	void *out_notcombined_fp_1 = NULL;
 	void *out_notcombined_fp_2 = NULL;
-	const char *out_suffix     = NULL;
+	bool out_suffix_allocated  = false;
+	char *out_suffix           = NULL;
 	int num_combiner_threads   = 0;
-	const struct file_operations *fops = &normal_fops;
+	struct file_operations *fops = &normal_fops;
 	int c;
 	char *tmp;
 	struct timeval start_time;
@@ -734,16 +748,13 @@ int main(int argc, char **argv)
 			break;
 		case 'z':
 			fops = &gzip_fops;
-			out_suffix = gzip_fops.suffix;
 			break;
-		/* XXX Some memory is leaked by the allocations below.  Doesn't
-		 * really matter though. */
 		case COMPRESS_PROG_OPTION:
 			pipe_fops.name = optarg;
 			if (out_suffix == NULL) {
 				out_suffix = xmalloc(strlen(optarg) + 2);
-				sprintf((void*)out_suffix, ".%s", optarg);
-				pipe_fops.suffix = out_suffix;
+				sprintf(out_suffix, ".%s", optarg);
+				out_suffix_allocated = true;
 			}
 			fops = &pipe_fops;
 			compress_prog = optarg;
@@ -752,11 +763,15 @@ int main(int argc, char **argv)
 			compress_prog_args = optarg;
 			break;
 		case SUFFIX_OPTION:
-			if (strlen(optarg) == 0) {
-				out_suffix = optarg;
-			} else {
+			if (out_suffix_allocated)
+				free(out_suffix);
+			if (*optarg) {
 				out_suffix = xmalloc(strlen(optarg) + 2);
-				sprintf((void*)out_suffix, ".%s", optarg);
+				sprintf(out_suffix, ".%s", optarg);
+				out_suffix_allocated = true;
+			} else {
+				out_suffix = optarg;
+				out_suffix_allocated = false;
 			}
 			break;
 		case 't':
@@ -782,8 +797,8 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (out_suffix != fops->suffix && fops == &pipe_fops)
-		pipe_fops.suffix = out_suffix;
+	if (out_suffix != NULL && out_suffix != fops->suffix)
+		fops->suffix = out_suffix;
 
 	if (max_overlap == 0)
 		max_overlap = (int)(2 * read_len - fragment_len +
@@ -816,7 +831,8 @@ int main(int argc, char **argv)
 	mkdir_p(output_dir);
 
 	char name_buf[strlen(output_dir) + 1 + strlen(prefix) +
-		      sizeof(".notCombined_2.fastq") + sizeof(".gz")];
+		      strlen(".notCombined_2.fastq") +
+		      strlen(fops->suffix) + 1];
 	char *suffix;
 	suffix = name_buf + sprintf(name_buf, "%s/%s", output_dir, prefix);
 
@@ -882,22 +898,23 @@ int main(int argc, char **argv)
 	 * be combined, given the input parameters to the program.  If it can,
 	 * write the combined read to the PREFIX.extendedFrags.fastq file.
 	 * Otherwise, write the reads in the mate pair to the
-	 * PREFIX.notCombined_1.fastq and PREFIX.notCombined_2.fastq files.  Or,
-	 * if the -c / --to-stdout option is specified, write the combined reads
-	 * to standard output, and ignore the uncombined reads."
+	 * PREFIX.notCombined_1.fastq and PREFIX.notCombined_2.fastq files, or
+	 * PREFIX.notCombined.fastq for interleaved output.  Or, if the -c /
+	 * --to-stdout option is specified, write the combined reads to standard
+	 * output, and ignore the uncombined reads."
 	 *
-	 * There will be @num_combiner_threads combiner threads created that
-	 * will process the reads in parallel by retrieving `struct
-	 * read_set'-sized chunks of reads from the reader threads, and
-	 * providing `struct read_set'-sized chunks of combined or uncombined
-	 * reads to the writer threads.
+	 * In the following implementation, there will be @num_combiner_threads
+	 * combiner threads created that will process the reads in parallel by
+	 * retrieving `struct read_set'-sized chunks of reads from the reader
+	 * thread(s), and providing `struct read_set'-sized chunks of combined
+	 * or uncombined reads to the writer threads.
 	 */
 
 	/* Histogram of how many combined reads have a given length.
 	 *
 	 * The zero index slot counts how many reads were not combined.
 	 *
-	 * Here, there is a copy of the histogram for each thread, and they are
+	 * There is a copy of the histogram for each thread, and they are
 	 * combined after all the combiner threads are done. */
 	struct histogram combined_read_len_hists[num_combiner_threads];
 	struct histogram *combined_read_len_hist =
@@ -1012,5 +1029,7 @@ int main(int argc, char **argv)
 		info("FLASH " VERSION_STR " complete!");
 		info("%.3f seconds elapsed", (double)(end_usec - start_usec) / 1000000);
 	}
+	if (out_suffix_allocated)
+		free(out_suffix);
 	return 0;
 }

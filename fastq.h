@@ -45,7 +45,8 @@ struct read_set {
 
 
 extern void
-start_fastq_readers_and_writers(void *mates1_gzf, void *mates2_gzf,
+start_fastq_readers_and_writers(gzFile mates1_gzf,
+				gzFile mates2_gzf,
 				void *out_combined_fp,
 				void *out_notcombined_fp_1,
 				void *out_notcombined_fp_2,

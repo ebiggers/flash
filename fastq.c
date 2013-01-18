@@ -190,7 +190,7 @@ void write_read_compressed(struct read *read, void *_fp, int phred_offset)
 
 
 
-const struct file_operations gzip_fops = {
+struct file_operations gzip_fops = {
 	.name       = "gzip",
 	.suffix     = ".gz",
 	.write_read = write_read_compressed,
@@ -198,7 +198,7 @@ const struct file_operations gzip_fops = {
 	.close_file = xgzclose,
 };
 
-const struct file_operations normal_fops = {
+struct file_operations normal_fops = {
 	.name       = "text",
 	.suffix     = "",
 	.write_read = write_read_uncompressed,
@@ -206,8 +206,6 @@ const struct file_operations normal_fops = {
 	.close_file = xfclose,
 };
 
-char *compress_prog = NULL;
-char *compress_prog_args = "";
 struct file_operations pipe_fops = {
 	.name       = NULL,
 	.suffix     = NULL,
@@ -215,6 +213,9 @@ struct file_operations pipe_fops = {
 	.open_file  = xpopen,
 	.close_file = xpclose,
 };
+
+char *compress_prog = NULL;
+char *compress_prog_args = "";
 
 void destroy_read(struct read *r)
 {
@@ -648,8 +649,8 @@ static void start_interleaved_fastq_writer(void *fp,
 
 
 /* Starts the FASTQ readers and writers needed for the FLASH program to run. */
-void start_fastq_readers_and_writers(void *mates1_gzf,
-				     void *mates2_gzf,
+void start_fastq_readers_and_writers(gzFile mates1_gzf,
+				     gzFile mates2_gzf,
 				     void *out_combined_fp,
 				     void *out_notcombined_fp_1,
 				     void *out_notcombined_fp_2,
