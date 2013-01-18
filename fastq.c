@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <limits.h>
 #include <semaphore.h>
 
 #include "fastq.h"
@@ -263,50 +264,56 @@ void free_read_set(struct read_set *p)
  * read_queue_put() and read_queue_get(), respectively.
  */
 struct read_queue {
-	sem_t		  q_filled_slots;
-	sem_t		  q_empty_slots;
-	sem_t		  q_lock;
-	unsigned	  q_front;
-	unsigned	  q_back;
-	struct read_set **q_reads;
-	size_t	          q_size;
+	size_t size;
+	size_t front;
+	size_t back;
+	size_t filled_slots;
+	struct read_set **read_sets;
+	pthread_mutex_t lock;
+	pthread_cond_t read_set_avail_cond;
+	pthread_cond_t space_avail_cond;
 };
 
 static struct read_queue *new_read_queue(size_t size, bool full)
 {
 	struct read_queue *q = xmalloc(sizeof(struct read_queue));
-	q->q_reads = xmalloc(size * sizeof(struct read_set*));
-	if (full)
+	q->read_sets = xmalloc(size * sizeof(struct read_set*));
+	if (full) {
 		for (size_t i = 0; i < size; i++)
-			q->q_reads[i] = new_read_set();
-	else
+			q->read_sets[i] = new_read_set();
+		q->filled_slots = size;
+	} else {
 		for (size_t i = 0; i < size; i++)
-			q->q_reads[i] = NULL;
-
-	sem_init(&q->q_filled_slots, 0, (full) ? size : 0);
-	sem_init(&q->q_empty_slots, 0, (full) ? 0 : size);
-	sem_init(&q->q_lock, 0, 1);
-	q->q_front = 0;
-	q->q_back = size - 1;
-	q->q_size = size;
+			q->read_sets[i] = NULL;
+		q->filled_slots = 0;
+	}
+	q->front = 0;
+	q->back = size - 1;
+	q->size = size;
+	if (pthread_mutex_init(&q->lock, NULL))
+		fatal_error_with_errno("Failed to initialize mutex");
+	if (pthread_cond_init(&q->read_set_avail_cond, NULL))
+		fatal_error_with_errno("Failed to initialize condition variable");
+	if (pthread_cond_init(&q->space_avail_cond, NULL))
+		fatal_error_with_errno("Failed to initialize condition variable");
 	return q;
 }
 
 static void free_read_queue(struct read_queue *q)
 {
 	if (q) {
-		int filled_slots;
-		sem_getvalue(&q->q_filled_slots, &filled_slots);
-		sem_destroy(&q->q_filled_slots);
-		sem_destroy(&q->q_empty_slots);
-		sem_destroy(&q->q_lock);
-		int i = q->q_front;
-		while (filled_slots-- > 0) {
-			free_read_set(q->q_reads[i]);
-			i = (i + 1) % q->q_size;
+		size_t filled_slots = q->filled_slots;
+		size_t i = q->front;
+
+		while (filled_slots--) {
+			free_read_set(q->read_sets[i]);
+			i = (i + 1) % q->size;
 		}
-		free(q->q_reads);
-		free(q);
+
+		pthread_mutex_destroy(&q->lock);
+		pthread_cond_destroy(&q->read_set_avail_cond);
+		pthread_cond_destroy(&q->space_avail_cond);
+		free(q->read_sets);
 	}
 }
 
@@ -314,14 +321,18 @@ static void free_read_queue(struct read_queue *q)
  * available. */
 struct read_set *read_queue_get(struct read_queue *q)
 {
-	sem_wait(&q->q_filled_slots);
-	sem_wait(&q->q_lock);
+	struct read_set *r;
 
-	struct read_set *r = q->q_reads[q->q_front];
-	q->q_front = (q->q_front + 1) % q->q_size;
+	pthread_mutex_lock(&q->lock);
+	while (q->filled_slots == 0)
+		pthread_cond_wait(&q->read_set_avail_cond, &q->lock);
 
-	sem_post(&q->q_empty_slots);
-	sem_post(&q->q_lock);
+	r = q->read_sets[q->front];
+	q->front = (q->front + 1) % q->size;
+	q->filled_slots--;
+
+	pthread_cond_broadcast(&q->space_avail_cond);
+	pthread_mutex_unlock(&q->lock);
 	return r;
 }
 
@@ -329,14 +340,16 @@ struct read_set *read_queue_get(struct read_queue *q)
  * available. */
 void read_queue_put(struct read_queue *q, struct read_set *r)
 {
-	sem_wait(&q->q_empty_slots);
-	sem_wait(&q->q_lock);
+	pthread_mutex_lock(&q->lock);
+	while (q->filled_slots == q->size)
+		pthread_cond_wait(&q->space_avail_cond, &q->lock);
 
-	q->q_back = (q->q_back + 1) % q->q_size;
-	q->q_reads[q->q_back] = r;
+	q->back = (q->back + 1) % q->size;
+	q->read_sets[q->back] = r;
+	q->filled_slots++;
 
-	sem_post(&q->q_filled_slots);
-	sem_post(&q->q_lock);
+	pthread_cond_broadcast(&q->read_set_avail_cond);
+	pthread_mutex_unlock(&q->lock);
 }
 
 struct common_reader_params {
