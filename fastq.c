@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <limits.h>
-#include <semaphore.h>
 
 #include "fastq.h"
 #include "util.h"
