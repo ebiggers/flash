@@ -51,11 +51,23 @@ assembly and genome analysis processes.
 
 MANDATORY INPUT:
 
-To run FLASH, you must provide two FASTQ files of paired-end reads.
-Corresponding read pairs must be in the same order in both files.
-Alternatively, you may provide one FASTQ file containing interleaved
-paired-end reads, which may be standard input (see the --interleaved)
-option).
+To run FLASH, you may provide two FASTQ files of paired-end reads
+where corresponding paired reads are in the same order in both files.
+Alternatively, you may provide one FASTQ file, which may be standard input,
+containing interleaved paired-end reads (see the --interleaved option).
+The input FASTQ files may be either plain-text or compressed with gzip.
+Other compression formats for the input files are not yet supported.
+
+OUTPUT:
+
+The default output of FLASH is a FASTQ file containing the extended fragments
+produced by combining read pairs, two FASTQ files containing read pairs
+that were not combined, and histogram files that show the distribution of
+lengths of the extended fragments.  Writing the uncombined read pairs to an
+interleaved FASTQ file is also supported.  Also, writing the extended
+fragments directly to standard output is supported.  Plain-text and gzip
+output formats are natively supported; other output formats are supported
+indirectly via the --compress-prog option.  (Note that this is all FASTQ.)
 
 OPTIONS:
 
@@ -118,15 +130,15 @@ OPTIONS:
                           standard deviation is 10% of the average fragment
                           length.
 
-  -I, --interleaved       Equivalent to specifying both --interleaved-input
-                          and --interleaved-output.
-
   --interleaved-input     Instead of requiring files MATES_1.FASTQ and
                           MATES_2.FASTQ, allow a single file MATES.FASTQ that
                           has the paired-end reads interleaved.  Specify "-"
                           to read from standard input.
 
   --interleaved-output    Write the uncombined pairs in interleaved format.
+
+  -I, --interleaved       Equivalent to specifying both --interleaved-input
+                          and --interleaved-output.
 
   -o, --output-prefix=PREFIX
                           Prefix of output files.  Default: "out".
@@ -142,24 +154,24 @@ OPTIONS:
                           Similar to specifying --compress-prog=gzip and
                           --suffix=gz, but may be slightly faster.
 
-  --compress-prog=PROG
-                          Pipe the output through the compression program
-                          PROG, which will be called as `PROG -c -z -',
-                          plus any arguments specified by --compress-prog-args,
-                          to read uncompressed data from standard input and
-                          write compressed data to standard output.
+  --compress-prog=PROG    Pipe the output through the compression program
+                          PROG, which will be called as `PROG -c -',
+                          plus any arguments specified by --compress-prog-args.
+                          PROG must read uncompressed data from standard input
+                          and write compressed data to standard output.
+                          Examples: gzip, bzip2, xz, pigz.
 
   --compress-prog-args=ARGS
-                          A string of argugments that will be passed to the
+                          A string of arguments that will be passed to the
                           compression program if one is specified with
-                          --compress-prog.  Note: the arguments -z and -c
-                          are already assumed.
+                          --compress-prog.  Note: the argument -c is already
+                          assumed.
 
-  --suffix=SUFFIX
-                          Use SUFFIX as the suffix of the output files.
-                          A dot before the suffix is assumed, unless an
-                          empty suffix is provided.  Default: nothing;
-                          or 'gz' if -z is specified; or PROG if
+  --suffix=SUFFIX, --output-suffix=SUFFIX
+                          Use SUFFIX as the suffix of the output files
+                          after ".fastq".  A dot before the suffix is assumed,
+                          unless an empty suffix is provided.  Default:
+                          nothing; or 'gz' if -z is specified; or PROG if
                           --compress-prog is specified.
 
   -t, --threads=NTHREADS  Set the number of worker threads.  This is in
