@@ -21,8 +21,8 @@ struct read {
 };
 
 #include <pthread.h>
-#define READS_PER_READ_SET 5
-#define QUEUE_SIZE_PER_THREAD 2
+#define READS_PER_READ_SET 32
+#define QUEUE_SIZE_PER_THREAD 8
 
 struct read_queue;
 
