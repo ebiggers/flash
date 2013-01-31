@@ -1,5 +1,5 @@
 CC       := cc
-CFLAGS   := -O2 -Wall -std=c99 -D_POSIX_C_SOURCE=2
+CFLAGS   := -O2 -Wall -std=c99 -D_GNU_SOURCE
 CPPFLAGS := -pthread
 LDFLAGS  := -pthread
 LDLIBS   := -lz
