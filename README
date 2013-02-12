@@ -8,7 +8,8 @@ assembly and genome analysis processes.
 
 FLASH cannot merge paired-end reads that do not overlap.  It also cannot merge
 jumping read pairs that have an outward orientation (but these reads tend not to
-overlap anyway).
+overlap anyway).  FLASH also is not designed for data that has a significant
+portion of indel errors (such as Sanger sequencing data).
 
 				  INSTALLATION
 
