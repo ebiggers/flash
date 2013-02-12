@@ -1,3 +1,7 @@
+Version 1.2.5
+-------------------
+- FLASH will now compile and run on Mac OS X.
+
 Version 1.2.4
 -------------------
 - Support for piping the output of FLASH through arbitrary compression programs
