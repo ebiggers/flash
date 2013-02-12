@@ -313,6 +313,7 @@ static void free_read_queue(struct read_queue *q)
 		pthread_cond_destroy(&q->read_set_avail_cond);
 		pthread_cond_destroy(&q->space_avail_cond);
 		free(q->read_sets);
+		free(q);
 	}
 }
 
