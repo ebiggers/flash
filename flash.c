@@ -39,7 +39,7 @@
 #include "fastq.h"
 #include "util.h"
 
-#define VERSION_STR "v1.2.4"
+#define VERSION_STR "v1.2.5"
 
 static void usage()
 {

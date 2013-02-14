@@ -13,7 +13,8 @@ portion of indel errors (such as Sanger sequencing data).
 
 				  INSTALLATION
 
-FLASH runs on UNIX-compatible systems only (including GNU/Linux).
+FLASH runs on UNIX-compatible systems only (including GNU/Linux).  Version 1.2.5
+and later will run on Mac OS X, although some earlier versions did not.
 
 The only dependency, other than functions that are expected to be available in
 the C library, is the zlib data compression library.
@@ -21,8 +22,8 @@ the C library, is the zlib data compression library.
 To install FLASH, download the tarball, untar it, and compile the code using the
 provided Makefile:
 
-$ tar xzf FLASH-1.2.4.tar.gz
-$ cd FLASH-1.2.4
+$ tar xzf FLASH-1.2.5.tar.gz
+$ cd FLASH-1.2.5
 $ make
 
 The executable file that is produced is named 'flash'.
