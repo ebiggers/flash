@@ -154,6 +154,14 @@ static int pair_align(const struct read *read_1, const struct read *read_2,
  * Please see the help output of FLASH for the description of the min_overlap,
  * max_overlap, and max_mismatch_density parameters.  (--min-overlap,
  * --max-overlap, and --max-mismatch-density on the command line).
+ *
+ * You may also want to read the original FLASH publication for a description of
+ * the algorithm used here:
+ *
+ *  Title:   FLASH: fast length adjustment of short reads to improve genome assemblies
+ *  Authors: Tanja Magoč and Steven L. Salzberg
+ *  URL:     http://bioinformatics.oxfordjournals.org/content/27/21/2957.full
+ *
  */
 bool combine_reads(const struct read *read_1, const struct read *read_2,
 		   struct read *combined_read, int min_overlap,
