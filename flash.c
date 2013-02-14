@@ -1,3 +1,31 @@
+/*
+ * flash.c:  parse arguments and set up and run the FLASH pipeline.
+ *
+ * Please see combine_reads.c if you are looking for the core algorithm used to
+ * combine reads in FLASH.
+ */
+
+/*
+ * Copyright (C) 2012 Tanja Magoc
+ * Copyright (C) 2012, 2013 Eric Biggers
+ *
+ * This file is part of FLASH, a fast tool to merge overlapping paired-end
+ * reads.
+ *
+ * FLASH is free software; you can redistribute it and/or modify it under the
+ * terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 3 of the License, or (at your option)
+ * any later version.
+ *
+ * FLASH is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with FLASH; if not, see http://www.gnu.org/licenses/.
+ */
+
 #include <assert.h>
 #include <errno.h>
 #include <getopt.h>

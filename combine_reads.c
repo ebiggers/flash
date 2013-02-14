@@ -1,3 +1,29 @@
+/*
+ * combine_reads.c:  This file contains the code implementing the core algorithm
+ * to combine reads in FLASH.
+ */
+
+/*
+ * Copyright (C) 2012 Tanja Magoc
+ * Copyright (C) 2012, 2013 Eric Biggers
+ *
+ * This file is part of FLASH, a fast tool to merge overlapping paired-end
+ * reads.
+ *
+ * FLASH is free software; you can redistribute it and/or modify it under the
+ * terms of the GNU General Public License as published by the Free
+ * Software Foundation; either version 3 of the License, or (at your option)
+ * any later version.
+ *
+ * FLASH is distributed in the hope that it will be useful, but WITHOUT ANY
+ * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+ * A PARTICULAR PURPOSE. See the GNU General Public License for more
+ * details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with FLASH; if not, see http://www.gnu.org/licenses/.
+ */
+
 #include "combine_reads.h"
 #include "fastq.h"
 #include "util.h"
@@ -116,6 +142,19 @@ static int pair_align(const struct read *read_1, const struct read *read_2,
 		return best_position;
 }
 
+/* This is the entry point for the core algorithm of FLASH.  The following
+ * function attempts to combine @read_1 with @read_2, and writes the result into
+ * @combined_read.  %true is returned iff combination was successful.
+ *
+ * Note: @read_2 is provided to this function after having been
+ * reverse-complemented.  Hence, the code just align the reads together in the
+ * forward orientation, and it really will be aligning the original reads in the
+ * desired reverse-complement orientation.
+ *
+ * Please see the help output of FLASH for the description of the min_overlap,
+ * max_overlap, and max_mismatch_density parameters.  (--min-overlap,
+ * --max-overlap, and --max-mismatch-density on the command line).
+ */
 bool combine_reads(const struct read *read_1, const struct read *read_2,
 		   struct read *combined_read, int min_overlap,
 		   int max_overlap, float max_mismatch_density)
