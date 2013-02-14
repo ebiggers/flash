@@ -42,14 +42,6 @@ specify --threads=1.
 
 Usage: flash [OPTIONS] MATES_1.FASTQ MATES_2.FASTQ
 
-DESCRIPTION:
-
-FLASH (Fast Length Adjustment of SHort reads) is an accurate and fast tool
-to merge paired-end reads that were generated from DNA fragments whose
-lengths are shorter than twice the length of reads.  Merged read pairs result
-in unpaired longer reads.  Longer reads are generally more desired in genome
-assembly and genome analysis processes.
-
 MANDATORY INPUT:
 
 To run FLASH, you may provide two FASTQ files of paired-end reads
