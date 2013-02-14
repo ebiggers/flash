@@ -147,8 +147,8 @@ static int pair_align(const struct read *read_1, const struct read *read_2,
  * @combined_read.  %true is returned iff combination was successful.
  *
  * Note: @read_2 is provided to this function after having been
- * reverse-complemented.  Hence, the code just align the reads together in the
- * forward orientation, and it really will be aligning the original reads in the
+ * reverse-complemented.  Hence, the code just aligns the reads in the forward
+ * orientation, which is equivalent to aligning the original reads in the
  * desired reverse-complement orientation.
  *
  * Please see the help output of FLASH for the description of the min_overlap,
