@@ -1,3 +1,9 @@
+Version 1.2.6
+-------------------
+- FLASH now works on files larger than 2GiB on 32-bit operating systems, unless
+  the system zlib library does not support such files.  64-bit operating systems
+  are unaffected as they already supported large files by default.
+
 Version 1.2.5
 -------------------
 - FLASH will now compile and run on Mac OS X.
