@@ -393,7 +393,7 @@ static void write_hist_file(const char *hist_file,
 	for (long i = first_nonzero_idx; i <= last_nonzero_idx; i++) {
 		unsigned long count = hist_count_at(hist, i);
 		if (count != 0) {
-			if (fprintf(fp, "%ld\t%zu\n", i, count) < 0) {
+			if (fprintf(fp, "%ld\t%lu\n", i, count) < 0) {
 				fatal_error_with_errno("Error writing to "
 						       "the file \"%s\"",
 						       hist_file);
