@@ -33,6 +33,15 @@
 #include <zlib.h>
 #include "util.h"
 
+#ifdef __WIN32__
+    /* Get the pthread mutex declarations as a replacement for flockfile() and
+     * funlockfile(). */
+#  include <pthread.h>
+    /* Get the GetSystemInfo() declaration as replacement for
+     * sysconf(_SC_NPROCESSORS_ONLN). */
+#  include <windows.h>
+#endif
+
 const char canonical_ascii_tab[256] = {
         'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
         'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
@@ -100,25 +109,42 @@ void warning(const char *msg, ...)
 	va_end(va);
 }
 
+#ifdef __WIN32__
+static pthread_mutex_t stdout_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
 /* Prints an informational message. */
 void info(const char *msg, ...)
 {
 	va_list va;
 	va_start(va, msg);
 
+#ifdef __WIN32__
+	pthread_mutex_lock(&stdout_lock);
+#else
 	flockfile(stdout);
+#endif
 	fputs(PROGRAM_TAG, stdout);
 	vprintf(msg, va);
 	putchar('\n');
 	fflush(stdout);
 	va_end(va);
+#ifdef __WIN32__
+	pthread_mutex_unlock(&stdout_lock);
+#else
 	funlockfile(stdout);
+#endif
 }
 
 /* Returns the number of processors (if it can be determined), otherwise returns
  * 1. */
 unsigned get_default_num_threads()
 {
+#ifdef __WIN32__
+	SYSTEM_INFO sysinfo;
+	GetSystemInfo(&sysinfo);
+	return sysinfo.dwNumberOfProcessors;
+#else
 	long nthreads = sysconf(_SC_NPROCESSORS_ONLN);
 	if (nthreads == -1) {
 		warning("Could not deteremine number of processors! Assuming 1");
@@ -126,6 +152,7 @@ unsigned get_default_num_threads()
 	} else {
 		return (unsigned)nthreads;
 	}
+#endif
 }
 
 /* malloc(), exiting the program with failure status if memory allocation fails.
@@ -234,6 +261,10 @@ void xgzclose(void *fp)
 	if (fp && gzclose((gzFile)fp) != Z_OK)
 		fatal_error_with_errno("Failed to close output file");
 }
+
+#ifdef __WIN32__
+#  define mkdir(path, mode) mkdir(path)
+#endif
 
 /* Like `mkdir -p': create directory, and all parent directories, as needed,
  * failing only if a needed directory cannot be created. */

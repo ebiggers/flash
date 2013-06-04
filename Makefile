@@ -1,10 +1,16 @@
-CC       := cc
-CFLAGS   := -O2 -Wall -std=c99 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64
-CPPFLAGS := -pthread
-LDFLAGS  := -pthread
-LDLIBS   := -lz
-OBJ      := combine_reads.o fastq.o flash.o util.o
-EXE      := flash
+#
+# Makefile for FLASH.  Process this using GNU make by simply running
+#
+# $ make
+#
+# You may set CPPFLAGS, LDFLAGS, or CC in the environment if you would like to
+# use a non-default compiler, extra preprocessor flags (e.g. to find headers),
+# or extra linker flags (e.g. to find libraries).
+
+CFLAGS += -O2 -Wall -std=c99 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64
+LDLIBS := -lz -lpthread
+OBJ    := combine_reads.o fastq.o flash.o util.o
+EXE    := flash
 
 $(EXE):$(OBJ)
 

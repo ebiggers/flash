@@ -1,4 +1,4 @@
-				  INTRODUCTION
+                                  INTRODUCTION
 
 FLASH (Fast Length Adjustment of SHort reads) is a very accurate and fast tool
 to merge paired-end reads that were generated from DNA fragments whose lengths
@@ -11,22 +11,27 @@ jumping read pairs that have an outward orientation (but these reads tend not to
 overlap anyway).  FLASH also is not designed for data that has a significant
 portion of indel errors (such as Sanger sequencing data).
 
-				  INSTALLATION
+                                  INSTALLATION
 
-FLASH runs on UNIX-compatible systems only (including GNU/Linux).  Version 1.2.5
-and later will run on Mac OS X, although some earlier versions did not.
-
-The only dependency, other than functions that are expected to be available in
-the C library, is the zlib data compression library.
-
-To install FLASH, download the tarball, untar it, and compile the code using the
+On UNIX-compatible systems, including GNU/Linux and Mac OS X, you must compile
+FLASH from source.  The only dependency, other than functions that are expected
+to be available in the C library, is the zlib data compression library.  To
+install FLASH, download the tarball, untar it, and compile the code using the
 provided Makefile:
 
 $ tar xzf FLASH-1.2.6.tar.gz
 $ cd FLASH-1.2.6
 $ make
 
-The executable file that is produced is named 'flash'.
+The executable file that is produced is named 'flash'.  To run it from the
+command line you must copy it to a location on your $PATH variable, or else run
+it with a path including a directory, such as "./flash".
+
+FLASH also runs on Windows, and you can compile it on Windows using MinGW.
+However, for convenience you may instead download a standalone Windows binary
+from the SourceForge page (https://sourceforge.net/projects/flashpage/).
+
+                                 MULTITHREADING
 
 By default, FLASH uses multiple threads.  There are "combiner" threads that do
 the actual read combining, as well as 5 threads that are used for I/O (2
@@ -39,7 +44,7 @@ uncombined reads in the output files will be nondeterministic.  If you need to
 enforce that the output reads appear in the same order as the input, you must
 specify --threads=1.
 
-				     USAGE
+                                     USAGE
 
 Usage: flash [OPTIONS] MATES_1.FASTQ MATES_2.FASTQ
 
@@ -182,13 +187,13 @@ OPTIONS:
 
   -v, --version           Display version.
 
-				  PERFORMANCE
+                                  PERFORMANCE
 
 FLASH can process one million 100-bp read pairs in 120 seconds on a server with
 256 GB of RAM and a six-core 2.4 GHz AMD Opteron, or in 129 seconds on a desktop
 with 2 GB of RAM and a dual-core Intel Xeon 3.00 GHz CPU.
 
-				    ACCURACY
+                                    ACCURACY
 
 With reads' error rate of 1% or less, FLASH processes over 99% of read pairs
 correctly.  With error rate of 2%, FLASH processes over 98% of read pairs
@@ -196,18 +201,18 @@ correctly when default parameters are used. With more aggressive parameters
 (i.e., -x 0.35), FLASH processes over 90% of read pairs correctly even when the
 error rate is 5%.
 
-				  PUBLICATION
+                                  PUBLICATION
 
 Title:   FLASH: fast length adjustment of short reads to improve genome assemblies
 Authors: Tanja Magoč and Steven L. Salzberg
 URL:     http://bioinformatics.oxfordjournals.org/content/27/21/2957.full
 
-				    LICENSE
+                                    LICENSE
 
 FLASH is released under the GNU General Public License Version 3 or later (see
 COPYING).
 
-			  COMMENTS/QUESTIONS/REQUESTS
+                          COMMENTS/QUESTIONS/REQUESTS
 
 Send an e-mail to flash.comment@gmail.com
 
