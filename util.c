@@ -205,15 +205,8 @@ void *xgzopen(const char *filename, const char *mode)
 		f = gzopen(filename, mode);
 	}
 	if (!f) {
-		const char *err_str;
-		int errnum;
-		err_str = gzerror(f, &errnum);
-		if (errnum == Z_ERRNO)
-			fatal_error_with_errno("Failed to open the file \"%s\"",
-					       filename);
-		else
-			fatal_error("zlib error opening \"%s\": %s",
-				    filename, err_str);
+		fatal_error_with_errno("Failed to open the file \"%s\"",
+				       filename);
 	}
 	return f;
 }
