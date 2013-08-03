@@ -190,7 +190,8 @@ void *xfopen(const char *filename, const char *mode)
 }
 
 /* gzopen(), exiting the program with failure status if file open fails, and
- * interpreting "-" as standard output.  */
+ * interpreting "-" as standard output or standard input depending on the
+ * requested mode.  */
 void *xgzopen(const char *filename, const char *mode)
 {
 	gzFile f;
