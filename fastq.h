@@ -61,7 +61,7 @@ extern void stop_fastq_readers_and_writers(const struct threads *threads);
 extern struct read_set *read_queue_get(struct read_queue *q);
 extern void read_queue_put(struct read_queue *q, struct read_set *r);
 
-static inline struct read_set *new_empty_read_set()
+static inline struct read_set *new_empty_read_set(void)
 {
 	return xmalloc(sizeof(struct read_set));
 }

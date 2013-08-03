@@ -41,7 +41,7 @@
 
 #define VERSION_STR "v1.2.6"
 
-static void usage()
+static void usage(void)
 {
 	const char *usage_str =
 "Usage: flash [OPTIONS] MATES_1.FASTQ MATES_2.FASTQ\n"
@@ -201,14 +201,14 @@ static void usage()
 	fputs(usage_str, stdout);
 }
 
-static void usage_short()
+static void usage_short(void)
 {
 	fputs("Usage: flash [OPTIONS] MATES_1.FASTQ MATES_2.FASTQ\n"
 	      "Try `flash -h' for more information.\n",
 	      stderr);
 }
 
-static void version()
+static void version(void)
 {
 	puts("FLASH " VERSION_STR);
 	puts("License:  GNU General Public License Version 3+ (http://gnu.org/licenses/gpl.html)");

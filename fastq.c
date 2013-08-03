@@ -261,14 +261,14 @@ void free_read(struct read *r)
 	}
 }
 
-static struct read *new_read()
+static struct read *new_read(void)
 {
 	struct read *r = xmalloc(sizeof (struct read));
 	init_read(r);
 	return r;
 }
 
-static struct read_set *new_read_set()
+static struct read_set *new_read_set(void)
 {
 	struct read_set *p = new_empty_read_set();
 	for (size_t i = 0; i < READS_PER_READ_SET; i++)

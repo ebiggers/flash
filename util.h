@@ -54,7 +54,7 @@ extern void warning(const char *msg, ...) __cold __format(printf, 1, 2);
 extern void info(const char *msg, ...) __cold __format(printf, 1, 2);
 extern void *xmalloc(size_t size) __cold;
 extern void *xrealloc(void *ptr, size_t size) __cold;
-extern unsigned get_default_num_threads() __cold;
+extern unsigned get_default_num_threads(void) __cold;
 extern void mkdir_p(const char *dir) __cold;
 
 
