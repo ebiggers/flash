@@ -1012,10 +1012,6 @@ int main(int argc, char **argv)
 	pthread_mutex_destroy(&common.queue_lock);
 	stop_fastq_readers_and_writers(&threads);
 
-	/* The remainder is the same regardless of whether we are compiling for
-	 * multiple threads or not (and we are down to one thread at this point
-	 * anyway). */
-
 	if (verbose) {
 		unsigned long num_combined_reads;
 		unsigned long num_uncombined_reads;
