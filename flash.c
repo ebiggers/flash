@@ -132,7 +132,7 @@ static void usage(void)
 "                          plus 2.5 times the fragment length standard\n"
 "                          deviation.  The default values are -r 100, -f 180,\n"
 "                          and -s 18, so this works out to a maximum overlap of\n"
-"                          70 bp.  If --max-overlap is specified, then the\n"
+"                          65 bp.  If --max-overlap is specified, then the\n"
 "                          specified value overrides the calculated value.\n"
 "\n"
 "                          If you do not know the standard deviation of the\n"

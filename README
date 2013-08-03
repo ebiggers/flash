@@ -121,7 +121,7 @@ OPTIONS:
                           plus 2.5 times the fragment length standard
                           deviation.  The default values are -r 100, -f 180,
                           and -s 18, so this works out to a maximum overlap of
-                          70 bp.  If --max-overlap is specified, then the
+                          65 bp.  If --max-overlap is specified, then the
                           specified value overrides the calculated value.
 
                           If you do not know the standard deviation of the
