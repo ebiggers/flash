@@ -1057,8 +1057,8 @@ int main(int argc, char **argv)
 	if (verbose) {
 		struct timeval end_time;
 		gettimeofday(&end_time, NULL);
-		uint64_t start_usec = start_time.tv_sec * 1000000 + start_time.tv_usec;
-		uint64_t end_usec = end_time.tv_sec * 1000000 + end_time.tv_usec;
+		uint64_t start_usec = (uint64_t)start_time.tv_sec * 1000000 + start_time.tv_usec;
+		uint64_t end_usec = (uint64_t)end_time.tv_sec * 1000000 + end_time.tv_usec;
 		info(" ");
 		info("FLASH " VERSION_STR " complete!");
 		info("%.3f seconds elapsed", (double)(end_usec - start_usec) / 1000000);
