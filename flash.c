@@ -728,7 +728,7 @@ int main(int argc, char **argv)
 			if (tmp == optarg || *tmp ||
 			    phred_offset < 0 || phred_offset > 127)
 			{
-				fatal_error("Phred offset must be a in integer "
+				fatal_error("Phred offset must be an integer "
 					    "in the range [0, 127]!  Please "
 					    "check option -p.");
 			}
