@@ -8,8 +8,6 @@
 #define min(a,b) (((a) < (b)) ? (a) : (b))
 
 #define ARRAY_LEN(A) (sizeof(A) / sizeof((A)[0]))
-#define ZERO_ARRAY(A) (memset((A), 0, sizeof(A)))
-#define ZERO_OBJECT(obj) (memset((&obj), 0, sizeof(obj)))
 
 #ifdef __GNUC__
 #	if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4)
