@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <sys/types.h>
+#include <errno.h>
 
 #include "fastq.h"
 #include "util.h"
@@ -606,14 +607,18 @@ static void start_noninterleaved_fastq_reader(gzFile fp,
 					      struct read_queue *free_q,
 					      struct read_queue *ready_q)
 {
-	struct reader_params *params = xmalloc(sizeof *params);
+	struct reader_params *params;
+	int result;
+
+	params = xmalloc(sizeof *params);
 	init_common_reader_params(&params->common, fp, phred_offset,
 				  num_combiner_threads, verbose);
 	params->free_q = free_q;
 	params->ready_q = ready_q;
-	if (pthread_create(&thread->pthread, NULL,
-			   fastq_reader_thread_proc, params))
-	{
+	result = pthread_create(&thread->pthread, NULL,
+				fastq_reader_thread_proc, params);
+	if (result) {
+		errno = result;
 		fatal_error_with_errno("Could not create FASTQ reader thread");
 	}
 }
@@ -628,16 +633,20 @@ static void start_interleaved_fastq_reader(gzFile fp,
 					   struct read_queue *free_q_2,
 					   struct read_queue *ready_q_2)
 {
-	struct interleaved_reader_params *params = xmalloc(sizeof *params);
+	struct interleaved_reader_params *params;
+	int result;
+
+	params = xmalloc(sizeof *params);
 	init_common_reader_params(&params->common, fp, phred_offset,
 				  num_combiner_threads, verbose);
 	params->free_q_1 = free_q_1;
 	params->ready_q_1 = ready_q_1;
 	params->free_q_2 = free_q_2;
 	params->ready_q_2 = ready_q_2;
-	if (pthread_create(&thread->pthread, NULL,
-			   fastq_interleaved_reader_thread_proc, params))
-	{
+	result = pthread_create(&thread->pthread, NULL,
+				fastq_interleaved_reader_thread_proc, params);
+	if (result) {
+		errno = result;
 		fatal_error_with_errno("Could not create FASTQ reader thread");
 	}
 }
@@ -651,14 +660,18 @@ static void start_noninterleaved_fastq_writer(void *fp,
 					      struct read_queue *free_q,
 					      struct read_queue *ready_q)
 {
-	struct writer_params *params = xmalloc(sizeof *params);
+	struct writer_params *params;
+	int result;
+
+	params = xmalloc(sizeof *params);
 	init_common_writer_params(&params->common,
 				  fp, fops, phred_offset, num_combiner_threads);
 	params->free_q = free_q;
 	params->ready_q = ready_q;
-	if (pthread_create(&thread->pthread, NULL,
-			   fastq_writer_thread_proc, params))
-	{
+	result = pthread_create(&thread->pthread, NULL,
+				fastq_writer_thread_proc, params);
+	if (result) {
+		errno = result;
 		fatal_error_with_errno("Could not create FASTQ writer thread");
 	}
 }
@@ -673,7 +686,10 @@ static void start_interleaved_fastq_writer(void *fp,
 					   struct read_queue *free_q_2,
 					   struct read_queue *ready_q_2)
 {
-	struct interleaved_writer_params *params = xmalloc(sizeof *params);
+	struct interleaved_writer_params *params;
+	int result;
+
+	params = xmalloc(sizeof *params);
 	init_common_writer_params(&params->common,
 				  fp, fops, phred_offset, num_combiner_threads);
 	params->free_q_1 = free_q_1;
@@ -681,9 +697,10 @@ static void start_interleaved_fastq_writer(void *fp,
 	params->free_q_2 = free_q_2;
 	params->ready_q_2 = ready_q_2;
 
-	if (pthread_create(&thread->pthread, NULL,
-			   fastq_interleaved_writer_thread_proc, params))
-	{
+	result = pthread_create(&thread->pthread, NULL,
+				fastq_interleaved_writer_thread_proc, params);
+	if (result) {
+		errno = result;
 		fatal_error_with_errno("Could not create FASTQ writer thread");
 	}
 }
@@ -777,27 +794,45 @@ void start_fastq_readers_and_writers(gzFile mates1_gzf,
  * queues.  */
 void stop_fastq_readers_and_writers(const struct threads *threads)
 {
-	if (pthread_join(threads->reader_1.pthread, NULL) != 0)
+	int result;
+
+	result = pthread_join(threads->reader_1.pthread, NULL);
+	if (result) {
+		errno = result;
 		fatal_error_with_errno("Failed to join first reader thread");
+	}
 
 	if (threads->reader_2.pthread != (pthread_t)-1) {
-		if (pthread_join(threads->reader_2.pthread, NULL) != 0)
+		result = pthread_join(threads->reader_2.pthread, NULL);
+		if (result) {
+			errno = result;
 			fatal_error_with_errno("Failed to join second reader thread");
+		}
 	} else {
 		/* Interleaved reads--- only had one reader thread */
 	}
 
-	if (pthread_join(threads->writer_combined.pthread, NULL) != 0)
+	result = pthread_join(threads->writer_combined.pthread, NULL);
+	if (result) {
+		errno = result;
 		fatal_error_with_errno("Failed to join extended fragments "
 				       "writer thread");
-	if (pthread_join(threads->writer_uncombined_1.pthread, NULL) != 0)
+	}
+
+	result = pthread_join(threads->writer_uncombined_1.pthread, NULL);
+	if (result) {
+		errno = result;
 		fatal_error_with_errno("Failed to join uncombined fragments "
 				       "writer thread #1");
+	}
 
 	if (threads->writer_uncombined_2.pthread != (pthread_t)-1) {
-		if (pthread_join(threads->writer_uncombined_2.pthread, NULL) != 0)
+		result = pthread_join(threads->writer_uncombined_2.pthread, NULL);
+		if (result) {
+			errno = result;
 			fatal_error_with_errno("Failed to join uncombined fragments "
 					       "writer thread #2");
+		}
 	} else {
 		/* Interleaved reads--- only had one uncombined read writer
 		 * thread */
