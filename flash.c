@@ -986,6 +986,7 @@ int main(int argc, char **argv)
 			ret = pthread_create(&other_combiner_threads[i],
 					     NULL, combiner_thread_proc, p);
 			if (ret != 0) {
+				errno = ret;
 				fatal_error_with_errno("Could not create "
 						       "worker thread #%d",
 						       i + 1);
@@ -995,7 +996,11 @@ int main(int argc, char **argv)
 		}
 	}
 	for (int i = 0; i < num_combiner_threads - 1; i++) {
-		if (pthread_join(other_combiner_threads[i], NULL) != 0) {
+		int result;
+
+		result = pthread_join(other_combiner_threads[i], NULL);
+		if (result) {
+			errno = result;
 			fatal_error_with_errno("Failed to join worker thread #%d",
 					       i + 1);
 		}
