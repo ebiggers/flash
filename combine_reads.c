@@ -30,9 +30,10 @@
 
 
 /*
- * Align the read @seq_1 to the read @seq_2, where @overlap_len is the length of
- * the attempted overlap and the length of @seq_1, and @seq_2_len is the length
- * of @seq_2.
+ * Align the beginning of the DNA sequence @seq_1 to the beginning of the DNA
+ * sequence @seq_2, both in the same orientation, where @seq_2 is at least as
+ * long as @seq_1, and @overlap_len is the length of @seq_1 and therefore the
+ * length of the overlap in the attempted alignment.
  *
  * In the output paramater @mismatch_density_ret, return the density of base
  * pair mismatches in the overlapped region.  In the output parameter
