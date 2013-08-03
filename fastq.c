@@ -170,7 +170,7 @@ static void sprint_read(char buf[], const struct read *read, int phred_offset)
  *
  * Aborts on write error.
  */
-void write_read_uncompressed(struct read *read, void *_fp, int phred_offset)
+static void write_read_uncompressed(struct read *read, void *_fp, int phred_offset)
 {
 	FILE *fp = (FILE*)_fp;
 	size_t size = read->tag_len + 1 + read->seq_len + 3 + read->seq_len + 1;
@@ -197,7 +197,7 @@ void write_read_uncompressed(struct read *read, void *_fp, int phred_offset)
  *
  * Aborts on write error.
  */
-void write_read_compressed(struct read *read, void *_fp, int phred_offset)
+static void write_read_compressed(struct read *read, void *_fp, int phred_offset)
 {
 	gzFile fp = (gzFile)_fp;
 

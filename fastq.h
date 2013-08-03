@@ -77,9 +77,4 @@ extern void destroy_read(struct read *r);
 
 extern void free_read(struct read *r);
 
-extern void write_read_uncompressed(struct read *read, void *fp,
-				    int phred_offset);
-extern void write_read_compressed(struct read *read, void *fp,
-				  int phred_offset);
-
 #endif /* _FASTQ_H */
