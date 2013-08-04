@@ -189,11 +189,16 @@ OPTIONS:
 
                                   PERFORMANCE
 
-FLASH can process one million 100-bp read pairs in 120 seconds on a server with
-256 GB of RAM and a six-core 2.4 GHz AMD Opteron, or in 129 seconds on a desktop
-with 2 GB of RAM and a dual-core Intel Xeon 3.00 GHz CPU.
+Since FLASH processes each read pair independently, it will, by default, process
+read pairs in parallel.  It works quite fast, even with low-cost computing
+resources.  As an example, we ran FLASH v1.2.6 on a laptop with a dual-core 2.3
+GHz AMD x86_64 processor and it processed one million 100-bp read pairs in 24.5
+seconds with the default parameters.  Less than 1 MB of memory was used.  Actual
+timing results will vary, but they will depend primarily on the number of CPUs
+available, the speed of each CPU, and on the I/O speed of reading the input
+files and writing the output files.
 
-                                    ACCURACY
+                                   ACCURACY
 
 With reads' error rate of 1% or less, FLASH processes over 99% of read pairs
 correctly.  With error rate of 2%, FLASH processes over 98% of read pairs
