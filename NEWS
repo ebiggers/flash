@@ -1,3 +1,13 @@
+Version 1.2.7
+-------------------
+- FLASH is now supported on Windows.  See the README.
+- Minor bug-fixes regarding printing of error messages.
+- Fixed a bug where the time that FLASH took to run may have been mis-calculated
+  on 32-bit systems in an unlikely case.  This only affected the printed
+  informational output.
+- Updated PERFORMANCE section in README to be accurate for the current version
+  of FLASH.
+
 Version 1.2.6
 -------------------
 - FLASH now works on files larger than 2GiB on 32-bit operating systems, unless
