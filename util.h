@@ -30,7 +30,7 @@ struct read;
  * gzFile and its associated functions. */
 typedef void* (*open_file_t)(const char *filename, const char *mode);
 typedef void (*close_file_t)(void *);
-typedef void (*write_read_t)(struct read *read, void *fp, int phred_offset);
+typedef void (*write_read_t)(const struct read *read, void *fp, int phred_offset);
 
 struct file_operations {
 	char *name;
