@@ -6,7 +6,7 @@
 #include "util.h"
 #include <stdlib.h>
 
-struct file_operations;
+struct output_file_operations;
 
 /* Read from a FASTQ file. */
 struct read {
@@ -45,13 +45,13 @@ struct read_set {
 
 
 extern void
-start_fastq_readers_and_writers(gzFile mates1_gzf,
-				gzFile mates2_gzf,
+start_fastq_readers_and_writers(struct input_stream *mates1_in,
+				struct input_stream *mates2_in,
 				void *out_combined_fp,
 				void *out_notcombined_fp_1,
 				void *out_notcombined_fp_2,
 				int phred_offset,
-				const struct file_operations *fops,
+				const struct output_file_operations *fops,
 				struct threads *threads,
 				int num_worker_threads,
 				bool verbose);

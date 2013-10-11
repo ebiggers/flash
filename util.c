@@ -24,6 +24,7 @@
  */
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +41,10 @@
     /* Get the GetSystemInfo() declaration as replacement for
      * sysconf(_SC_NPROCESSORS_ONLN). */
 #  include <windows.h>
+#endif
+
+#ifndef O_BINARY
+#  define O_BINARY 0
 #endif
 
 const char canonical_ascii_tab[256] = {
@@ -293,4 +298,158 @@ void mkdir_p(const char *dir)
 			*p = orig_char;
 		}
 	} while (*p++ != '\0');
+}
+
+/* Read data from gzFile, with error checking.  Returns number of bytes
+ * successfully read; 0 implies stream is at end-of-file.  Aborts on error.  */
+static size_t xgzread(void *_fp, void *buf, size_t count)
+{
+	gzFile gzfp = (gzFile)_fp;
+	int ret;
+
+retry:
+	ret = gzread(gzfp, buf, count);
+	if (ret >= 0) {
+		return ret;
+	} else if (gzeof(gzfp)) {
+		return 0;
+	} else {
+		int errnum;
+		const char *error_str;
+
+		error_str = gzerror(gzfp, &errnum);
+		if (errnum == Z_ERRNO) {
+			if (errno == EINTR) {
+				goto retry;
+			} else {
+				fatal_error_with_errno("Error reading "
+						       "input file");
+			}
+		} else {
+			fatal_error("zlib error while reading input "
+				    "file: %s", error_str);
+		}
+	}
+}
+
+/* Read data from file descriptor, with error checking.  Returns number of bytes
+ * successfully read; 0 implies stream is at end-of-file.  Aborts on error.  */
+static size_t xread(void *_fp, void *buf, size_t count)
+{
+	int fd = (int)(intptr_t)_fp;
+	ssize_t ret;
+
+retry:
+	ret = read(fd, buf, count);
+	if (ret >= 0)
+		return ret;
+	else if (errno == EINTR)
+		goto retry;
+	else
+		fatal_error_with_errno("Error reading input file");
+}
+
+static void xclose(void *_fp)
+{
+	close((int)(intptr_t)_fp);
+}
+
+/* Initializes an input stream to read lines from the file specified by
+ * @filename.
+ *
+ * Gzip files are auto-detected.
+ */
+void init_input_stream(struct input_stream *in, const char *filename)
+{
+	unsigned char magic[2] = {0, 0};
+	const size_t bufsize = 32768;
+	FILE *tmp_fp;
+
+	/* Test for gzip magic bytes { 0x1f, 0x8b}  */
+
+	tmp_fp = xfopen(filename, "rb");
+	fread(magic, sizeof(magic[0]), ARRAY_LEN(magic), tmp_fp);
+	fclose(tmp_fp);
+	if (magic[0] == 0x1f && magic[1] == 0x8b) {
+		/* GZIP file  */
+		in->fp = xgzopen(filename, "rb");
+		in->read = xgzread;
+		in->close = (void(*)(void*))gzclose;
+	} else {
+		/* Other file (hopefully uncompressed...)  */
+		in->fp = (void*)(intptr_t)open(filename, O_RDONLY | O_BINARY);
+		in->read = xread;
+		in->close = xclose;
+	}
+
+	/* Allocate internal buffer  */
+	in->buf_begin     = xmalloc(bufsize);
+	in->buf_end       = in->buf_begin + bufsize;
+	in->buf_cur_begin = in->buf_begin;
+	in->buf_cur_end   = in->buf_begin;
+}
+
+/* Close an input stream initialized with init_input_stream()  */
+void destroy_input_stream(struct input_stream *in)
+{
+	(*in->close)(in->fp);
+	free(in->buf_begin);
+}
+
+/* Read a line from an input stream.  Semantics are like getline(), but aborts
+ * on read error.  */
+ssize_t input_stream_getline(struct input_stream *in, char **lineptr, size_t *n)
+{
+	/* offset = number of bytes copied to *lineptr buffer, excluding
+	 *          terminating null byte  */
+	size_t offset = 0;
+
+	for (;;) {
+		size_t navail;
+		char *nl_ptr;
+		size_t copysize;
+
+		navail = in->buf_cur_end - in->buf_cur_begin;
+
+		if (navail == 0) {
+			/* No more data in internal buffer; try to fill it  */
+
+			in->buf_cur_begin = in->buf_begin;
+			navail = (*in->read)(in->fp,
+					     in->buf_cur_begin,
+					     in->buf_end - in->buf_cur_begin);
+			in->buf_cur_end = in->buf_cur_begin + navail;
+
+			if (navail == 0)  /* At end-of-file  */
+				break;
+		}
+
+		/* Find the first newline in the internal buffer.  If found,
+		 * copy up to and including the newline, then return (break
+		 * loop).  If not found, copy all the data and try to read more
+		 * (continue loop).  */
+		nl_ptr = memchr(in->buf_cur_begin, '\n', navail);
+		if (nl_ptr)
+			copysize = nl_ptr - in->buf_cur_begin + 1;
+		else
+			copysize = navail;
+
+		if (*n < offset + copysize + 1) {
+			*n = max(*n * 3 / 2, offset + copysize + 1);
+			*n = max(*n, 128);
+			*lineptr = xrealloc(*lineptr, *n);
+		}
+
+		memcpy(*lineptr + offset, in->buf_cur_begin, copysize);
+		offset += copysize;
+		in->buf_cur_begin += copysize;
+		if (in->buf_cur_begin[-1] == '\n')
+			break;
+	}
+
+	if (offset == 0)
+		return -1;
+
+	(*lineptr)[offset] = '\0';
+	return offset;
 }

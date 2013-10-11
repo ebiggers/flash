@@ -26,13 +26,10 @@
 
 struct read;
 
-/* These are only for writing files; reading files currently always uses a
- * gzFile and its associated functions. */
 typedef void* (*open_file_t)(const char *filename, const char *mode);
 typedef void (*close_file_t)(void *);
 typedef void (*write_read_t)(const struct read *read, void *fp, int phred_offset);
-
-struct file_operations {
+struct output_file_operations {
 	char *name;
 	char *suffix;
 	open_file_t  open_file;
@@ -40,9 +37,19 @@ struct file_operations {
 	write_read_t write_read;
 };
 
-extern struct file_operations gzip_fops;
-extern struct file_operations normal_fops;
-extern struct file_operations pipe_fops;
+struct input_stream {
+	void *fp;
+	char *buf_begin;
+	char *buf_end;
+	char *buf_cur_begin;
+	char *buf_cur_end;
+	size_t (*read)(void *fp, void *buf, size_t count);
+	void (*close)(void *fp);
+};
+
+extern struct output_file_operations gzip_fops;
+extern struct output_file_operations normal_fops;
+extern struct output_file_operations pipe_fops;
 extern char *compress_prog;
 extern char *compress_prog_args;
 
@@ -64,6 +71,11 @@ extern void *xgzopen(const char *filename, const char *mode) __cold;
 extern void xfclose(void *fp) __cold;
 extern void xgzclose(void *fp) __cold;
 extern void xpclose(void *fp) __cold;
+
+extern void init_input_stream(struct input_stream *in, const char *filename);
+extern ssize_t input_stream_getline(struct input_stream *in, char **lineptr,
+				    size_t *n);
+extern void destroy_input_stream(struct input_stream *in);
 
 /* Remove all whitespace from the end of the line/string.  Return the length of
  * the trimmed string. */

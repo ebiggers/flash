@@ -683,15 +683,15 @@ int main(int argc, char **argv)
 	bool verbose               = true;
 	bool interleaved_input     = false;
 	bool interleaved_output    = false;
-	gzFile mates1_gzf          = NULL;
-	gzFile mates2_gzf          = NULL;
+	struct input_stream mates1_in = {};
+	struct input_stream mates2_in = {};
 	void *out_combined_fp      = NULL;
 	void *out_notcombined_fp_1 = NULL;
 	void *out_notcombined_fp_2 = NULL;
 	bool out_suffix_allocated  = false;
 	char *out_suffix           = NULL;
 	int num_combiner_threads   = 0;
-	struct file_operations *fops = &normal_fops;
+	struct output_file_operations *fops = &normal_fops;
 	int c;
 	char *tmp;
 	struct timeval start_time;
@@ -857,9 +857,9 @@ int main(int argc, char **argv)
 		return 2;
 	}
 
-	mates1_gzf = xgzopen(argv[0], "r");
+	init_input_stream(&mates1_in, argv[0]);
 	if (!interleaved_input)
-		mates2_gzf = xgzopen(argv[1], "r");
+		init_input_stream(&mates2_in, argv[1]);
 
 	mkdir_p(output_dir);
 
@@ -956,7 +956,9 @@ int main(int argc, char **argv)
 		hist_init(&combined_read_len_hists[i]);
 
 	struct threads threads;
-	start_fastq_readers_and_writers(mates1_gzf, mates2_gzf, out_combined_fp,
+	start_fastq_readers_and_writers(&mates1_in,
+					(interleaved_input ? NULL : &mates2_in),
+					out_combined_fp,
 					out_notcombined_fp_1,
 					out_notcombined_fp_2, phred_offset,
 					fops, &threads,

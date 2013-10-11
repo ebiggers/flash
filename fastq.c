@@ -35,55 +35,8 @@
 #include "fastq.h"
 #include "util.h"
 
-/* Similar to getline(), but read from a gzFile, and abort on read error. */
-static ssize_t gzip_getline(gzFile gz_fp, char **lineptr, size_t *n)
-{
-	size_t offset = 0;
-	if (!*lineptr) {
-		*n = 128;
-		*lineptr = (char*)xmalloc(*n);
-	}
-	while (1) {
-		char *line = *lineptr;
-		assert(*n - offset > 0);
-		if (gzgets(gz_fp, line + offset, *n - offset)) {
-			/* gzgets() reads until '\n' or until *n - offset - 1
-			 * characters have been read.  In both cases the buffer
-			 * is terminated with a '\0' character. */
-			char *nl_p = memchr(line + offset, '\n', *n - offset - 1);
-			if (nl_p) {
-				/* Read the whole line.  Return its length,
-				 * including the '\n'. */
-				assert(*(nl_p + 1) == '\0');
-				return nl_p - line + 1;
-			} else {
-				/* Didn't read the whole line.  Increase the
-				 * buffer size. */
-				assert(line[*n - 1] == '\0');
-				offset = *n - 1;
-				*n *= 2;
-				*lineptr = xrealloc(line, *n);
-				continue;
-			}
-		} else {
-			/* gzgets() returned NULL, so EOF or error occurred. */
-			const char *error_str;
-			int errnum;
-
-			if (gzeof(gz_fp))
-				return -1;
-			error_str = gzerror(gz_fp, &errnum);
-			if (errnum == Z_ERRNO)
-				fatal_error_with_errno("Error reading reads file");
-			else
-				fatal_error("zlib error while reading reads "
-					    "file: %s", error_str);
-		}
-	}
-}
-
 /*
- * Reads the next read from the FASTQ file @mates_gzf into the @read structure.
+ * Reads the next read from the FASTQ file @mates_in into the @read structure.
  *
  * Whitespace is stripped from the end of the sequence, tag, and quality scores.
  *
@@ -93,26 +46,27 @@ static ssize_t gzip_getline(gzFile gz_fp, char **lineptr, size_t *n)
  * Returns true on success, false on EOF.  Aborts on read error, or if the data
  * is invalid.
  */
-static bool next_read(struct read *read, gzFile mates_gzf, int phred_offset)
+static bool next_read(struct read *read, struct input_stream *mates_in,
+		      int phred_offset)
 {
 	ssize_t tag_len, seq_len, qual_len;
 
-	tag_len = gzip_getline(mates_gzf, &read->tag, &read->tag_bufsz);
+	tag_len = input_stream_getline(mates_in, &read->tag, &read->tag_bufsz);
 	if (tag_len == -1)
 		return false;
 
-	seq_len = gzip_getline(mates_gzf, &read->seq, &read->seq_bufsz);
+	seq_len = input_stream_getline(mates_in, &read->seq, &read->seq_bufsz);
 	if (seq_len == -1)
 		fatal_error("Unexpected EOF reading input file!");
 
-	qual_len = gzip_getline(mates_gzf, &read->qual, &read->qual_bufsz);
+	qual_len = input_stream_getline(mates_in, &read->qual, &read->qual_bufsz);
 	if (qual_len == -1)
 		fatal_error("Unexpected EOF reading input file!");
 
 	if (read->qual[0] != '+')
 		fatal_error("Expected '+' character in FASTQ separator!");
 
-	qual_len = gzip_getline(mates_gzf, &read->qual, &read->qual_bufsz);
+	qual_len = input_stream_getline(mates_in, &read->qual, &read->qual_bufsz);
 	if (qual_len == -1)
 		fatal_error("Unexpected EOF reading input file!");
 
@@ -161,12 +115,12 @@ static void sprint_read(char buf[], const struct read *read, int phred_offset)
  * Writes a read to an output uncompressed FASTQ file.
  *
  * @read:
- * 	The read to write (sequence, tag, and quality values), where the quality
- * 	values are scaled to start at 0.
+ *	The read to write (sequence, tag, and quality values), where the quality
+ *	values are scaled to start at 0.
  * @fp:
- * 	FASTQ file opened for writing.
+ *	FASTQ file opened for writing.
  * @phred_offset:
- * 	Offset for quality values in the output.
+ *	Offset for quality values in the output.
  *
  * Aborts on write error.
  */
@@ -189,12 +143,12 @@ static void write_read_uncompressed(const struct read *read, void *_fp,
  * Writes a read to an output zlib-compressed FASTQ file.
  *
  * @read:
- * 	The read to write (sequence, tag, and quality values), where the quality
- * 	values are scaled to start at 0.
+ *	The read to write (sequence, tag, and quality values), where the quality
+ *	values are scaled to start at 0.
  * @fp:
- * 	FASTQ file opened for writing.
+ *	FASTQ file opened for writing.
  * @phred_offset:
- * 	Offset for quality values in the output.
+ *	Offset for quality values in the output.
  *
  * Aborts on write error.
  */
@@ -221,7 +175,7 @@ static void write_read_compressed(const struct read *read, void *_fp,
 
 
 
-struct file_operations gzip_fops = {
+struct output_file_operations gzip_fops = {
 	.name       = "gzip",
 	.suffix     = ".gz",
 	.write_read = write_read_compressed,
@@ -229,7 +183,7 @@ struct file_operations gzip_fops = {
 	.close_file = xgzclose,
 };
 
-struct file_operations normal_fops = {
+struct output_file_operations normal_fops = {
 	.name       = "text",
 	.suffix     = "",
 	.write_read = write_read_uncompressed,
@@ -237,7 +191,7 @@ struct file_operations normal_fops = {
 	.close_file = xfclose,
 };
 
-struct file_operations pipe_fops = {
+struct output_file_operations pipe_fops = {
 	.name       = NULL,
 	.suffix     = NULL,
 	.write_read = write_read_uncompressed,
@@ -387,7 +341,7 @@ struct common_reader_params {
 	int phred_offset;
 	int num_combiner_threads;
 	bool verbose;
-	gzFile fp;
+	struct input_stream *in;
 };
 
 struct reader_params {
@@ -408,7 +362,7 @@ struct common_writer_params {
 	int phred_offset;
 	int num_combiner_threads;
 	void *fp;
-	const struct file_operations *fops;
+	const struct output_file_operations *fops;
 };
 
 struct writer_params {
@@ -427,17 +381,17 @@ struct interleaved_writer_params {
 
 
 static void init_common_reader_params(struct common_reader_params *params,
-				      gzFile fp, int phred_offset,
+				      struct input_stream *in, int phred_offset,
 				      int num_combiner_threads, bool verbose)
 {
-	params->fp = fp;
+	params->in = in;
 	params->phred_offset = phred_offset;
 	params->num_combiner_threads = num_combiner_threads;
 	params->verbose = verbose;
 }
 
 static void init_common_writer_params(struct common_writer_params *params,
-				      void *fp, const struct file_operations *fops,
+				      void *fp, const struct output_file_operations *fops,
 				      int phred_offset, int num_combiner_threads)
 {
 	params->fp = fp;
@@ -449,7 +403,7 @@ static void init_common_writer_params(struct common_writer_params *params,
 static void *fastq_reader_thread_proc(void *_params)
 {
 	struct reader_params *params = _params;
-	void *fp = params->common.fp;
+	struct input_stream *in = params->common.in;
 	int phred_offset = params->common.phred_offset;
 	bool verbose = params->common.verbose;
 	unsigned i;
@@ -459,7 +413,7 @@ static void *fastq_reader_thread_proc(void *_params)
 	while (1) {
 		r = read_queue_get(params->free_q);
 		for (i = 0; i < READS_PER_READ_SET; i++) {
-			if (!next_read(r->reads[i], fp, phred_offset))
+			if (!next_read(r->reads[i], in, phred_offset))
 				goto out;
 			if (verbose && ++pair_no % 25000 == 0)
 				info("Processed %lu read pairs", pair_no);
@@ -479,7 +433,7 @@ out:
 		r->reads[0] = NULL;
 		read_queue_put(params->ready_q, r);
 	}
-	gzclose(fp);
+	destroy_input_stream(in);
 	free(params);
 	return NULL;
 }
@@ -487,7 +441,7 @@ out:
 static void *fastq_interleaved_reader_thread_proc(void *_params)
 {
 	struct interleaved_reader_params *params = _params;
-	void *fp = params->common.fp;
+	struct input_stream *in = params->common.in;
 	int phred_offset = params->common.phred_offset;
 	bool verbose = params->common.verbose;
 	unsigned i;
@@ -498,9 +452,9 @@ static void *fastq_interleaved_reader_thread_proc(void *_params)
 		r1 = read_queue_get(params->free_q_1);
 		r2 = read_queue_get(params->free_q_2);
 		for (i = 0; i < READS_PER_READ_SET; i++) {
-			if (!next_read(r1->reads[i], fp, phred_offset))
+			if (!next_read(r1->reads[i], in, phred_offset))
 				goto out;
-			if (!next_read(r2->reads[i], fp, phred_offset)) {
+			if (!next_read(r2->reads[i], in, phred_offset)) {
 				fatal_error("Found odd number of reads "
 					    "in interleaved reads file");
 			}
@@ -532,7 +486,7 @@ out:
 		r2->reads[0] = NULL;
 		read_queue_put(params->ready_q_2, r2);
 	}
-	gzclose(fp);
+	destroy_input_stream(in);
 	free(params);
 	return NULL;
 }
@@ -601,7 +555,7 @@ out:
 	return NULL;
 }
 
-static void start_noninterleaved_fastq_reader(gzFile fp,
+static void start_noninterleaved_fastq_reader(struct input_stream *in,
 					      int phred_offset,
 					      int num_combiner_threads,
 					      bool verbose,
@@ -613,7 +567,7 @@ static void start_noninterleaved_fastq_reader(gzFile fp,
 	int result;
 
 	params = xmalloc(sizeof *params);
-	init_common_reader_params(&params->common, fp, phred_offset,
+	init_common_reader_params(&params->common, in, phred_offset,
 				  num_combiner_threads, verbose);
 	params->free_q = free_q;
 	params->ready_q = ready_q;
@@ -625,7 +579,7 @@ static void start_noninterleaved_fastq_reader(gzFile fp,
 	}
 }
 
-static void start_interleaved_fastq_reader(gzFile fp,
+static void start_interleaved_fastq_reader(struct input_stream *in,
 					   int phred_offset,
 					   int num_combiner_threads,
 					   bool verbose,
@@ -639,7 +593,7 @@ static void start_interleaved_fastq_reader(gzFile fp,
 	int result;
 
 	params = xmalloc(sizeof *params);
-	init_common_reader_params(&params->common, fp, phred_offset,
+	init_common_reader_params(&params->common, in, phred_offset,
 				  num_combiner_threads, verbose);
 	params->free_q_1 = free_q_1;
 	params->ready_q_1 = ready_q_1;
@@ -655,7 +609,7 @@ static void start_interleaved_fastq_reader(gzFile fp,
 
 
 static void start_noninterleaved_fastq_writer(void *fp,
-					      const struct file_operations *fops,
+					      const struct output_file_operations *fops,
 					      int phred_offset,
 					      int num_combiner_threads,
 					      struct thread *thread,
@@ -679,7 +633,7 @@ static void start_noninterleaved_fastq_writer(void *fp,
 }
 
 static void start_interleaved_fastq_writer(void *fp,
-					   const struct file_operations *fops,
+					   const struct output_file_operations *fops,
 					   int phred_offset,
 					   int num_combiner_threads,
 					   struct thread *thread,
@@ -709,13 +663,13 @@ static void start_interleaved_fastq_writer(void *fp,
 
 
 /* Starts the FASTQ readers and writers needed for the FLASH program to run. */
-void start_fastq_readers_and_writers(gzFile mates1_gzf,
-				     gzFile mates2_gzf,
+void start_fastq_readers_and_writers(struct input_stream *mates1_in,
+				     struct input_stream *mates2_in,
 				     void *out_combined_fp,
 				     void *out_notcombined_fp_1,
 				     void *out_notcombined_fp_2,
 				     int phred_offset,
-				     const struct file_operations *fops,
+				     const struct output_file_operations *fops,
 				     struct threads *threads,
 				     int num_combiner_threads,
 				     bool verbose)
@@ -736,20 +690,20 @@ void start_fastq_readers_and_writers(gzFile mates1_gzf,
 	threads->writer_uncombined_2.free_q  = threads->reader_2.free_q;
 	threads->writer_uncombined_2.ready_q = new_read_queue(queue_size, false);
 
-	if (mates2_gzf) {
-		start_noninterleaved_fastq_reader(mates1_gzf, phred_offset,
+	if (mates2_in) {
+		start_noninterleaved_fastq_reader(mates1_in, phred_offset,
 						  num_combiner_threads, verbose,
 						  &threads->reader_1,
 						  threads->reader_1.free_q,
 						  threads->reader_1.ready_q);
 
-		start_noninterleaved_fastq_reader(mates2_gzf, phred_offset,
+		start_noninterleaved_fastq_reader(mates2_in, phred_offset,
 						  num_combiner_threads, false,
 						  &threads->reader_2,
 						  threads->reader_2.free_q,
 						  threads->reader_2.ready_q);
 	} else {
-		start_interleaved_fastq_reader(mates1_gzf, phred_offset,
+		start_interleaved_fastq_reader(mates1_in, phred_offset,
 					       num_combiner_threads, verbose,
 					       &threads->reader_1,
 					       threads->reader_1.free_q,

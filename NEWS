@@ -1,3 +1,8 @@
+Version 1.2.8
+-------------------
+Very slight performance improvement and corrected handling of embedded zero
+bytes and/or missing terminal newline in input file.
+
 Version 1.2.7
 -------------------
 - FLASH is now supported on Windows.  See the README.
