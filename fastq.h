@@ -63,7 +63,10 @@ extern void read_queue_put(struct read_queue *q, struct read_set *r);
 
 static inline struct read_set *new_empty_read_set(void)
 {
-	return xmalloc(sizeof(struct read_set));
+	struct read_set *r;
+
+	r = xmalloc(sizeof(*r));
+	return memset(r, 0, sizeof(*r));
 }
 
 extern void free_read_set(struct read_set *p);

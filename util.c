@@ -394,6 +394,9 @@ void destroy_input_stream(struct input_stream *in)
 {
 	(*in->close)(in->fp);
 	free(in->buf_begin);
+#ifndef NDEBUG
+	memset(in, 0xfd, sizeof(*in));
+#endif
 }
 
 /* Read a line from an input stream.  Semantics are like getline(), but aborts

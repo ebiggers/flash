@@ -207,6 +207,9 @@ void destroy_read(struct read *r)
 	free(r->tag);
 	free(r->seq);
 	free(r->qual);
+#ifndef NDEBUG
+	memset(r, 0xfd, sizeof(*r));
+#endif
 }
 
 void free_read(struct read *r)
@@ -238,6 +241,9 @@ void free_read_set(struct read_set *p)
 	if (p) {
 		for (size_t i = 0; i < READS_PER_READ_SET; i++)
 			free_read(p->reads[i]);
+#ifndef NDEBUG
+		memset(p, 0xfd, sizeof(*p));
+#endif
 		free(p);
 	}
 }
@@ -297,7 +303,13 @@ static void free_read_queue(struct read_queue *q)
 		pthread_mutex_destroy(&q->lock);
 		pthread_cond_destroy(&q->read_set_avail_cond);
 		pthread_cond_destroy(&q->space_avail_cond);
+	#ifndef NDEBUG
+		memset(q->read_sets, 0xfd, q->size * sizeof(q->read_sets[0]));
+	#endif
 		free(q->read_sets);
+	#ifndef NDEBUG
+		memset(q, 0xfd, sizeof(*q));
+	#endif
 		free(q);
 	}
 }
