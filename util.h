@@ -4,8 +4,6 @@
 #include <ctype.h>
 #include <string.h>
 
-#define max(a,b) (((a) > (b)) ? (a) : (b))
-#define min(a,b) (((a) < (b)) ? (a) : (b))
 
 #define ARRAY_LEN(A) (sizeof(A) / sizeof((A)[0]))
 
@@ -18,10 +16,14 @@
 #	define __noreturn __attribute__((noreturn))
 #	define __format(type, format_str, args_start) \
 			__attribute__((format(type, format_str, args_start)))
+#	define max(a,b) ({ __typeof__(a) _a = (a); __typeof__(b) _b = (b); _a > _b ? _a : _b; })
+#	define min(a,b) ({ __typeof__(a) _a = (a); __typeof__(b) _b = (b); _a < _b ? _a : _b; })
 #else
 #	define __noreturn
 #	define __cold
 #	define __format
+#	define max(a,b) (((a) > (b)) ? (a) : (b))
+#	define min(a,b) (((a) < (b)) ? (a) : (b))
 #endif
 
 struct read;

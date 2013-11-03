@@ -165,8 +165,8 @@ static int pair_align(const struct read *read_1, const struct read *read_2,
  *
  */
 bool combine_reads(const struct read *read_1, const struct read *read_2,
-		   struct read *combined_read, int min_overlap,
-		   int max_overlap, float max_mismatch_density)
+		   struct read *combined_read,
+		   const struct combine_params *params)
 {
 	/* Starting position of the alignment in the first read, 0-based. */
 	int overlap_begin;
@@ -189,8 +189,10 @@ bool combine_reads(const struct read *read_1, const struct read *read_2,
 	char * restrict combined_qual;
 
 	/* Do the alignment. */
-	overlap_begin = pair_align(read_1, read_2, min_overlap, max_overlap,
-				   max_mismatch_density);
+	overlap_begin = pair_align(read_1, read_2,
+				   params->min_overlap,
+				   params->max_overlap,
+				   params->max_mismatch_density);
 
 	/* If no alignment found, return false */
 	if (overlap_begin < 0)
@@ -228,14 +230,32 @@ bool combine_reads(const struct read *read_1, const struct read *read_2,
 			*combined_seq = *seq_1;
 			*combined_qual = max(*qual_1, *qual_2);
 		} else {
-			/* Different bases in the two reads.  Take the base from
-			 * the read that has the higher quality value, but use
+			/* Different bases in the two reads; use the higher
+			 * quality one.
+			 *
+			 * The old way of calculating the resulting quality
+			 * value (params->cap_mismatch_quals == %true) is to use
 			 * the lower quality value, and use a quality value of
 			 * at most 2 (+ phred_offset in the final output--- here
-			 * the quality values are all scaled to start at 0.) */
+			 * the quality values are all scaled to start at 0).
+			 * The motivation for this behavior is that the read
+			 * combination shows there was sequencing error at the
+			 * mismatch location, so the corresponding base call in
+			 * the combined read should be given a low quality
+			 * score.
+			 *
+			 * The new way (params->cap_mismatch_quals == %false,
+			 * default as of FLASH v1.2.8) is to use the absolute
+			 * value of the difference in quality scores, but at
+			 * least 2.  This allows a base call with a high quality
+			 * score to override a base call with a low quality
+			 * score without too much penalty.
+			 */
 
-			*combined_qual = min(*qual_1, *qual_2);
-			*combined_qual = min(*combined_qual, 2);
+			if (params->cap_mismatch_quals)
+				*combined_qual = min(min(*qual_1, *qual_2), 2);
+			else
+				*combined_qual = max(abs(*qual_1 - *qual_2), 2);
 
 			if (*qual_1 > *qual_2) {
 				*combined_seq = *seq_1;

@@ -1,7 +1,9 @@
 Version 1.2.8
 -------------------
-Very slight performance improvement and corrected handling of embedded zero
-bytes and/or missing terminal newline in input file.
+- FLASH's default behavior when assigning quality scores to mismatch sites in
+  the overlap region of combined reads has been improved.  See the documentation
+  for the new --cap-mismatch-quals option (which can be provided to request the
+  old behavior if desired) for more information about this change.
 
 Version 1.2.7
 -------------------

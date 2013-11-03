@@ -39,7 +39,7 @@
 #include "fastq.h"
 #include "util.h"
 
-#define VERSION_STR "v1.2.7"
+#define VERSION_STR "v1.2.8"
 
 static void usage(void)
 {
@@ -140,6 +140,17 @@ static void usage(void)
 "                          standard deviation is 10% of the average fragment\n"
 "                          length.\n"
 "\n"
+"  --cap-mismatch-quals    Cap quality scores assigned at mismatch locations\n"
+"                          to 2.  This was the default behavior in FLASH v1.2.7\n"
+"                          and earlier.  Later versions will instead calculate\n"
+"                          such scores as max(|q1 - q2|, 2); that is, the\n"
+"                          absolute value of the difference in quality scores,\n"
+"                          but at least 2.  Essentially, the new behavior\n"
+"                          prevents a low quality base call that is likely a\n"
+"                          sequencing error from significantly bringing down\n"
+"                          the quality of a high quality, likely correct base\n"
+"                          call.\n"
+"\n"
 "  --interleaved-input     Instead of requiring files MATES_1.FASTQ and\n"
 "                          MATES_2.FASTQ, allow a single file MATES.FASTQ that\n"
 "                          has the paired-end reads interleaved.  Specify \"-\"\n"
@@ -218,6 +229,7 @@ static void version(void)
 enum {
 	INTERLEAVED_INPUT_OPTION = 257,
 	INTERLEAVED_OUTPUT_OPTION,
+	CAP_MISMATCH_QUALS_OPTION,
 	COMPRESS_PROG_OPTION,
 	COMPRESS_PROG_ARGS_OPTION,
 	SUFFIX_OPTION,
@@ -232,6 +244,7 @@ static const struct option longopts[] = {
 	{"read-len",             required_argument,  NULL, 'r'},
 	{"fragment-len",         required_argument,  NULL, 'f'},
 	{"fragment-len-stddev",  required_argument,  NULL, 's'},
+	{"cap-mismatch-quals",   no_argument,        NULL, CAP_MISMATCH_QUALS_OPTION},
 	{"interleaved",          no_argument,        NULL, 'I'},
 	{"interleaved-input",    no_argument,        NULL,  INTERLEAVED_INPUT_OPTION},
 	{"interleaved-output",   no_argument,        NULL,  INTERLEAVED_OUTPUT_OPTION},
@@ -433,9 +446,7 @@ write_error:
 
 struct common_combiner_thread_params {
 	struct threads *threads;
-	int min_overlap;
-	int max_overlap;
-	float max_mismatch_density;
+	struct combine_params alg_params;
 	bool to_stdout;
 	pthread_mutex_t unqueue_lock;
 	pthread_mutex_t queue_lock;
@@ -453,9 +464,7 @@ static void *combiner_thread_proc(void *_params)
 
 	struct histogram *combined_read_len_hist = params->combined_read_len_hist;
 	struct threads *threads = params->common->threads;
-	int min_overlap = params->common->min_overlap;
-	int max_overlap = params->common->max_overlap;
-	float max_mismatch_density = params->common->max_mismatch_density;
+	const struct combine_params *alg_params = &params->common->alg_params;
 	bool to_stdout = params->common->to_stdout;
 
 	struct read_set *read_set_1;
@@ -524,9 +533,7 @@ static void *combiner_thread_proc(void *_params)
 			/* Try combining the reads. */
 			combination_successful = combine_reads(read_1, read_2,
 							       combined_read,
-							       min_overlap,
-							       max_overlap,
-							       max_mismatch_density);
+							       alg_params);
 			if (combination_successful) {
 				/* Combination was successful. */
 
@@ -636,9 +643,12 @@ no_more_reads:
 
 int main(int argc, char **argv)
 {
-	int max_overlap            = 0;
-	int min_overlap            = 10;
-	float max_mismatch_density = 0.25;
+	struct combine_params alg_params = {
+		.max_overlap = 0,
+		.min_overlap = 10,
+		.max_mismatch_density = 0.25,
+		.cap_mismatch_quals = false,
+	};
 	int phred_offset           = 33;
 	int read_len               = 100;
 	int fragment_len           = 180;
@@ -666,23 +676,23 @@ int main(int argc, char **argv)
 	while ((c = getopt_long(argc, argv, optstring, longopts, NULL)) != -1) {
 		switch (c) {
 		case 'm':
-			min_overlap = strtol(optarg, &tmp, 10);
-			if (tmp == optarg || *tmp || min_overlap < 1)
+			alg_params.min_overlap = strtol(optarg, &tmp, 10);
+			if (tmp == optarg || *tmp || alg_params.min_overlap < 1)
 				fatal_error("Minimum overlap must be a "
 					    "positive integer!  Please check "
 					    "option -m.");
 			break;
 		case 'M':
-			max_overlap = strtol(optarg, &tmp, 10);
-			if (tmp == optarg || *tmp || max_overlap < 1)
+			alg_params.max_overlap = strtol(optarg, &tmp, 10);
+			if (tmp == optarg || *tmp || alg_params.max_overlap < 1)
 				fatal_error("Maximum overlap must be "
 					    "a positive integer!  Please check "
 					    "option -M.");
 			break;
 		case 'x':
-			max_mismatch_density = strtod(optarg, &tmp);
-			if (tmp == optarg || *tmp || max_mismatch_density < 0.0 ||
-			    max_mismatch_density > 1.0)
+			alg_params.max_mismatch_density = strtod(optarg, &tmp);
+			if (tmp == optarg || *tmp || alg_params.max_mismatch_density < 0.0 ||
+			    alg_params.max_mismatch_density > 1.0)
 			{
 				fatal_error("Max mismatch density must be a "
 					    "number in the interval [0, 1]! "
@@ -724,6 +734,9 @@ int main(int argc, char **argv)
 				fatal_error("Read length must be a "
 					    "positive integer!  Please check "
 					    "option -r.");
+			break;
+		case CAP_MISMATCH_QUALS_OPTION:
+			alg_params.cap_mismatch_quals = true;
 			break;
 		case 'I':
 			interleaved_input = true;
@@ -799,17 +812,17 @@ int main(int argc, char **argv)
 	if (out_suffix != NULL && out_suffix != fops->suffix)
 		fops->suffix = out_suffix;
 
-	if (max_overlap == 0)
-		max_overlap = (int)(2 * read_len - fragment_len +
-				    2.5 * fragment_len_stddev);
+	if (alg_params.max_overlap == 0)
+		alg_params.max_overlap = (int)(2 * read_len - fragment_len +
+					       2.5 * fragment_len_stddev);
 
-	if (max_overlap < min_overlap) {
+	if (alg_params.max_overlap < alg_params.min_overlap) {
 		fatal_error(
 "Maximum overlap (%d) cannot be less than the minimum overlap (%d).\n"
 "Please make sure you have provided the read length and fragment length\n"
 "correctly.  Or, alternatively, specify the minimum and maximum overlap\n"
 "manually with the --min-overlap and --max-overlap options.",
-			max_overlap, min_overlap);
+			alg_params.max_overlap, alg_params.min_overlap);
 	}
 
 	if (num_combiner_threads == 0)
@@ -878,11 +891,12 @@ int main(int argc, char **argv)
 		info("    %s.histogram", name_buf);
 		info(" ");
 		info("Parameters:");
-		info("    Min overlap:          %d", min_overlap);
-		info("    Max overlap:          %d", max_overlap);
+		info("    Min overlap:          %d", alg_params.min_overlap);
+		info("    Max overlap:          %d", alg_params.max_overlap);
 		info("    Phred offset:         %d", phred_offset);
 		info("    Combiner threads:     %d", num_combiner_threads);
-		info("    Max mismatch density: %f", max_mismatch_density);
+		info("    Max mismatch density: %f", alg_params.max_mismatch_density);
+		info("    Cap mismatch quals:   %s", alg_params.cap_mismatch_quals ? "true" : "false");
 		info("    Output format:        %s", fops->name);
 		info("    Interleaved input:    %s", interleaved_input ? "true" : "false");
 		info("    Interleaved output:   %s", interleaved_output ? "true" : "false");
@@ -932,9 +946,7 @@ int main(int argc, char **argv)
 					verbose);
 	struct common_combiner_thread_params common = {
 		.threads              = &threads,
-		.min_overlap          = min_overlap,
-		.max_overlap          = max_overlap,
-		.max_mismatch_density = max_mismatch_density,
+		.alg_params           = alg_params,
 		.to_stdout            = to_stdout,
 		.unqueue_lock         = PTHREAD_MUTEX_INITIALIZER,
 		.queue_lock           = PTHREAD_MUTEX_INITIALIZER,

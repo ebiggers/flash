@@ -19,8 +19,8 @@ to be available in the C library, is the zlib data compression library.  To
 install FLASH, download the tarball, untar it, and compile the code using the
 provided Makefile:
 
-$ tar xzf FLASH-1.2.7.tar.gz
-$ cd FLASH-1.2.7
+$ tar xzf FLASH-1.2.8.tar.gz
+$ cd FLASH-1.2.8
 $ make
 
 The executable file that is produced is named 'flash'.  To run it from the
@@ -128,6 +128,17 @@ OPTIONS:
                           fragment library, you can probably assume that the
                           standard deviation is 10% of the average fragment
                           length.
+
+  --cap-mismatch-quals    Cap quality scores assigned at mismatch locations
+                          to 2.  This was the default behavior in FLASH v1.2.7
+                          and earlier.  Later versions will instead calculate
+                          such scores as max(|q1 - q2|, 2); that is, the
+                          absolute value of the difference in quality scores,
+                          but at least 2.  Essentially, the new behavior
+                          prevents a low quality base call that is likely a
+                          sequencing error from significantly bringing down
+                          the quality of a high quality, likely correct base
+                          call.
 
   --interleaved-input     Instead of requiring files MATES_1.FASTQ and
                           MATES_2.FASTQ, allow a single file MATES.FASTQ that
