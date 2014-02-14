@@ -19,8 +19,8 @@ to be available in the C library, is the zlib data compression library.  To
 install FLASH, download the tarball, untar it, and compile the code using the
 provided Makefile:
 
-$ tar xzf FLASH-1.2.8.tar.gz
-$ cd FLASH-1.2.8
+$ tar xzf FLASH-1.2.9-beta.tar.gz
+$ cd FLASH-1.2.9-beta
 $ make
 
 The executable file that is produced is named 'flash'.  To run it from the
@@ -65,8 +65,8 @@ that were not combined, and histogram files that show the distribution of
 lengths of the extended fragments.  Writing the uncombined read pairs to an
 interleaved FASTQ file is also supported.  Also, writing the extended
 fragments directly to standard output is supported.  Plain-text and gzip
-output formats are natively supported; other output formats are supported
-indirectly via the --compress-prog option.  (Note that this is all FASTQ.)
+output formats are natively supported; other compression formats are
+supported indirectly via the --compress-prog option.
 
 OPTIONS:
 
@@ -145,10 +145,20 @@ OPTIONS:
                           has the paired-end reads interleaved.  Specify "-"
                           to read from standard input.
 
-  --interleaved-output    Write the uncombined pairs in interleaved format.
+  --interleaved-output    Write the uncombined pairs in interleaved FASTQ
+                          format.
 
   -I, --interleaved       Equivalent to specifying both --interleaved-input
                           and --interleaved-output.
+
+  --tab-delimited-input   Assume the input is in tab-delimited format
+                          rather than FASTQ, described below.
+
+  --tab-delimited-output  Write output in tab-delimited format (not FASTQ).
+                          Each line will contain either a combined pair in the
+                          format 'tag <tab> seq <tab> qual' or an uncombined
+                          pair in the format 'tag <tab> seq_1 <tab> qual_1
+                          <tab> seq_2 <tab> qual_2'.
 
   -o, --output-prefix=PREFIX
                           Prefix of output files.  Default: "out".
@@ -172,10 +182,11 @@ OPTIONS:
                           Examples: gzip, bzip2, xz, pigz.
 
   --compress-prog-args=ARGS
-                          A string of arguments that will be passed to the
-                          compression program if one is specified with
-                          --compress-prog.  Note: the argument -c is already
-                          assumed.
+                          A string of additional arguments that will be passed
+                          to the compression program if one is specified with
+                          --compress-prog.  (The arguments '-c -' are still
+                          passed in addition to explicitly specified
+                          arguments.)
 
   --suffix=SUFFIX, --output-suffix=SUFFIX
                           Use SUFFIX as the suffix of the output files

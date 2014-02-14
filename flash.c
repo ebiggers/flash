@@ -7,7 +7,7 @@
 
 /*
  * Copyright (C) 2012 Tanja Magoc
- * Copyright (C) 2012, 2013 Eric Biggers
+ * Copyright (C) 2012, 2013, 2014 Eric Biggers
  *
  * This file is part of FLASH, a fast tool to merge overlapping paired-end
  * reads.
@@ -29,17 +29,21 @@
 #include <assert.h>
 #include <errno.h>
 #include <getopt.h>
+#include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/time.h>
-#include <inttypes.h>
-#include <zlib.h>
 
 #include "combine_reads.h"
-#include "fastq.h"
+#include "iostream.h"
+#include "read.h"
+#include "read_io.h"
+#include "read_queue.h"
 #include "util.h"
 
-#define VERSION_STR "v1.2.8"
+#define VERSION_STR "v1.2.9-beta"
 
 static void usage(void)
 {
@@ -76,8 +80,8 @@ static void usage(void)
 "lengths of the extended fragments.  Writing the uncombined read pairs to an\n"
 "interleaved FASTQ file is also supported.  Also, writing the extended\n"
 "fragments directly to standard output is supported.  Plain-text and gzip\n"
-"output formats are natively supported; other output formats are supported\n"
-"indirectly via the --compress-prog option.  (Note that this is all FASTQ.)\n"
+"output formats are natively supported; other compression formats are\n"
+"supported indirectly via the --compress-prog option.\n"
 "\n"
 "OPTIONS:\n"
 "\n"
@@ -156,10 +160,20 @@ static void usage(void)
 "                          has the paired-end reads interleaved.  Specify \"-\"\n"
 "                          to read from standard input.\n"
 "\n"
-"  --interleaved-output    Write the uncombined pairs in interleaved format.\n"
+"  --interleaved-output    Write the uncombined pairs in interleaved FASTQ\n"
+"                          format.\n"
 "\n"
 "  -I, --interleaved       Equivalent to specifying both --interleaved-input\n"
 "                          and --interleaved-output.\n"
+"\n"
+"  --tab-delimited-input   Assume the input is in tab-delimited format\n"
+"                          rather than FASTQ, described below.\n"
+"\n"
+"  --tab-delimited-output  Write output in tab-delimited format (not FASTQ).\n"
+"                          Each line will contain either a combined pair in the\n"
+"                          format 'tag <tab> seq <tab> qual' or an uncombined\n"
+"                          pair in the format 'tag <tab> seq_1 <tab> qual_1\n"
+"                          <tab> seq_2 <tab> qual_2'.\n"
 "\n"
 "  -o, --output-prefix=PREFIX\n"
 "                          Prefix of output files.  Default: \"out\".\n"
@@ -183,10 +197,11 @@ static void usage(void)
 "                          Examples: gzip, bzip2, xz, pigz.\n"
 "\n"
 "  --compress-prog-args=ARGS\n"
-"                          A string of arguments that will be passed to the\n"
-"                          compression program if one is specified with\n"
-"                          --compress-prog.  Note: the argument -c is already\n"
-"                          assumed.\n"
+"                          A string of additional arguments that will be passed\n"
+"                          to the compression program if one is specified with\n"
+"                          --compress-prog.  (The arguments '-c -' are still\n"
+"                          passed in addition to explicitly specified\n"
+"                          arguments.)\n"
 "\n"
 "  --suffix=SUFFIX, --output-suffix=SUFFIX\n"
 "                          Use SUFFIX as the suffix of the output files\n"
@@ -233,6 +248,8 @@ enum {
 	COMPRESS_PROG_OPTION,
 	COMPRESS_PROG_ARGS_OPTION,
 	SUFFIX_OPTION,
+	TAB_DELIMITED_INPUT_OPTION,
+	TAB_DELIMITED_OUTPUT_OPTION,
 };
 
 static const char *optstring = "m:M:x:p:r:f:s:Io:d:czt:qhv";
@@ -246,8 +263,10 @@ static const struct option longopts[] = {
 	{"fragment-len-stddev",  required_argument,  NULL, 's'},
 	{"cap-mismatch-quals",   no_argument,        NULL, CAP_MISMATCH_QUALS_OPTION},
 	{"interleaved",          no_argument,        NULL, 'I'},
-	{"interleaved-input",    no_argument,        NULL,  INTERLEAVED_INPUT_OPTION},
-	{"interleaved-output",   no_argument,        NULL,  INTERLEAVED_OUTPUT_OPTION},
+	{"interleaved-input",    no_argument,        NULL, INTERLEAVED_INPUT_OPTION},
+	{"interleaved-output",   no_argument,        NULL, INTERLEAVED_OUTPUT_OPTION},
+	{"tab-delimited-input",  no_argument,        NULL, TAB_DELIMITED_INPUT_OPTION},
+	{"tab-delimited-output", no_argument,        NULL, TAB_DELIMITED_OUTPUT_OPTION},
 	{"output-prefix",        required_argument,  NULL, 'o'},
 	{"output-directory",     required_argument,  NULL, 'd'},
 	{"to-stdout",            no_argument,        NULL, 'c'},
@@ -307,6 +326,45 @@ static void get_combined_tag(const struct read *read_1,
 			break;
 		}
 	}
+}
+
+static char *
+input_format_str(char *buf, size_t bufsize,
+		 const struct read_format_params *iparams,
+		 bool interleaved)
+{
+	switch (iparams->fmt) {
+	case READ_FORMAT_FASTQ:
+		snprintf(buf, bufsize, "FASTQ, phred_offset=%d%s",
+			 iparams->phred_offset,
+			 (interleaved ? ", interleaved" : ""));
+		break;
+	case READ_FORMAT_TAB_DELIMITED:
+		snprintf(buf, bufsize, "Tab-delimited, phred_offset=%d",
+			 iparams->phred_offset);
+		break;
+	default:
+		assert(0);
+		break;
+	}
+	return buf;
+}
+
+static char *
+output_format_str(char *buf, size_t bufsize,
+		  const struct read_format_params *oparams,
+		  bool interleaved_output,
+		  const char *compress_prog,
+		  const char *compress_prog_args)
+{
+	input_format_str(buf, bufsize, oparams, interleaved_output);
+	if (compress_prog) {
+		char *p = strchr(buf, '\0');
+		snprintf(p, &buf[bufsize] - p,
+			", filtered through '%s %s'",
+			compress_prog, compress_prog_args);
+	}
+	return buf;
 }
 
 /* This is just a dynamic array used as a histogram.  It's needed to count the
@@ -405,15 +463,15 @@ static void write_hist_file(const char *hist_file,
 	FILE *fp = xfopen(hist_file, "w");
 	for (long i = first_nonzero_idx; i <= last_nonzero_idx; i++) {
 		unsigned long count = hist_count_at(hist, i);
-		if (count != 0) {
-			if (fprintf(fp, "%ld\t%lu\n", i, count) < 0) {
-				fatal_error_with_errno("Error writing to "
-						       "the file \"%s\"",
-						       hist_file);
-			}
-		}
+		if (count != 0)
+			if (fprintf(fp, "%ld\t%lu\n", i, count) < 0)
+				goto write_error;
 	}
-	xfclose(fp);
+	xfclose(fp, hist_file);
+	return;
+
+write_error:
+	fatal_error_with_errno("Error writing to \"%s\"", hist_file);
 }
 
 static void write_histogram_file(const char *histogram_file,
@@ -437,19 +495,15 @@ static void write_histogram_file(const char *histogram_file,
 		if (fputc('\n', fp) == EOF)
 			goto write_error;
 	}
-	xfclose(fp);
+	xfclose(fp, histogram_file);
 	return;
 write_error:
-	fatal_error_with_errno("Error writing to the file \"%s\"",
-			       histogram_file);
+	fatal_error_with_errno("Error writing to \"%s\"", histogram_file);
 }
 
 struct common_combiner_thread_params {
-	struct threads *threads;
+	struct read_io_handle *iohandle;
 	struct combine_params alg_params;
-	bool to_stdout;
-	pthread_mutex_t unqueue_lock;
-	pthread_mutex_t queue_lock;
 };
 
 struct combiner_thread_params {
@@ -463,9 +517,8 @@ static void *combiner_thread_proc(void *_params)
 	struct combiner_thread_params *params = _params;
 
 	struct histogram *combined_read_len_hist = params->combined_read_len_hist;
-	struct threads *threads = params->common->threads;
+	struct read_io_handle *iohandle = params->common->iohandle;
 	const struct combine_params *alg_params = &params->common->alg_params;
-	bool to_stdout = params->common->to_stdout;
 
 	struct read_set *read_set_1;
 	struct read_set *read_set_2;
@@ -477,7 +530,7 @@ static void *combiner_thread_proc(void *_params)
 	struct read_set *empty_read_set_2 = NULL;
 	unsigned to_reader_filled = 0;
 	unsigned to_writer_filled = 0;
-	struct read_set *combined_read_set = read_queue_get(threads->writer_combined.free_q);
+	struct read_set *combined_read_set = get_empty_read_set(iohandle);
 	unsigned combined_read_filled = 0;
 	struct read *combined_read;
 	struct read *read_1;
@@ -486,26 +539,12 @@ static void *combiner_thread_proc(void *_params)
 	unsigned j;
 	bool combination_successful;
 
-	while (1) { /* Process each read set, retrieved from the readers' ready queues */
+	for (;;) {
 
-		/* To make sure the read pairs are made correctly (i.e. always
-		 * having read 1 correctly paired with the corresponding read 2,
-		 * and not some other read 2), we need to make the retrieval of
-		 * the two read sets a critical section.  Otherwise, race
-		 * conditions could occur where thread A retrieves a set of
-		 * read 1's, then thread B retrieves the next set of read 1's
-		 * along with the read 2's that should have been received by
-		 * thread A.
-		 *
-		 * This should not be big bottleneck because all the reads in
-		 * each read set need to be processed before we get the next
-		 * read set. */
-		pthread_mutex_lock(&params->common->unqueue_lock);
-		read_set_1 = read_queue_get(threads->reader_1.ready_q);
-		read_set_2 = read_queue_get(threads->reader_2.ready_q);
-		pthread_mutex_unlock(&params->common->unqueue_lock);
+		/* Get some read pairs to process.  */
+		get_unprocessed_read_pairs(iohandle, &read_set_1, &read_set_2);
 
-		/* Process each read in the read set */
+		/* Process each read pair.  */
 		for (i = 0; i < READS_PER_READ_SET; i++) {
 
 			read_1 = read_set_1->reads[i];
@@ -521,7 +560,6 @@ static void *combiner_thread_proc(void *_params)
 				 * loop. */
 				goto no_more_reads;
 			}
-
 
 			reverse_complement(read_2->seq, read_2->seq_len);
 			reverse(read_2->qual, read_2->seq_len);
@@ -543,10 +581,8 @@ static void *combiner_thread_proc(void *_params)
 				get_combined_tag(read_1, read_2, combined_read);
 
 				if (++combined_read_filled == READS_PER_READ_SET) {
-					read_queue_put(threads->writer_combined.ready_q,
-						       combined_read_set);
-					combined_read_set = read_queue_get(
-							threads->writer_combined.free_q);
+					put_combined_reads(iohandle, combined_read_set);
+					combined_read_set = get_empty_read_set(iohandle);
 					combined_read_filled = 0;
 				}
 			} else {
@@ -563,17 +599,16 @@ static void *combiner_thread_proc(void *_params)
 				empty_read_set_2 = read_set_2;
 			}
 
-			if (combination_successful || to_stdout) {
-				/* We do not need to write the uncombined reads,
-				 * either because the reads were combined, or we
-				 * are writing to stdout.  So put them back in
-				 * the queues for the reader threads. */
+			if (combination_successful) {
+				/* We do not need to write the uncombined reads
+				 * because the reads were combined.  */
 
 				to_reader_1->reads[to_reader_filled] = read_1;
 				to_reader_2->reads[to_reader_filled] = read_2;
 				if (++to_reader_filled == READS_PER_READ_SET) {
-					read_queue_put(threads->reader_1.free_q, to_reader_1);
-					read_queue_put(threads->reader_2.free_q, to_reader_2);
+					put_empty_read_pairs(iohandle,
+							     to_reader_1,
+							     to_reader_2);
 					to_reader_filled = 0;
 					assert(empty_read_set_1 != NULL);
 					assert(empty_read_set_2 != NULL);
@@ -592,12 +627,9 @@ static void *combiner_thread_proc(void *_params)
 				reverse_complement(read_2->seq, read_2->seq_len);
 				reverse(read_2->qual, read_2->seq_len);
 				if (++to_writer_filled == READS_PER_READ_SET) {
-					pthread_mutex_lock(&params->common->queue_lock);
-					read_queue_put(threads->writer_uncombined_1.ready_q,
-						       to_writer_1);
-					read_queue_put(threads->writer_uncombined_2.ready_q,
-						       to_writer_2);
-					pthread_mutex_unlock(&params->common->queue_lock);
+					put_uncombined_read_pairs(iohandle,
+								  to_writer_1,
+								  to_writer_2);
 					to_writer_filled = 0;
 					assert(empty_read_set_1 != NULL);
 					assert(empty_read_set_2 != NULL);
@@ -631,12 +663,9 @@ no_more_reads:
 	free_read_set(empty_read_set_1);
 	free_read_set(empty_read_set_2);
 
-	pthread_mutex_lock(&params->common->queue_lock);
-	read_queue_put(threads->writer_uncombined_1.ready_q, to_writer_1);
-	read_queue_put(threads->writer_uncombined_2.ready_q, to_writer_2);
-	pthread_mutex_unlock(&params->common->queue_lock);
+	put_uncombined_read_pairs(iohandle, to_writer_1, to_writer_2);
+	put_combined_reads(iohandle, combined_read_set);
 
-	read_queue_put(threads->writer_combined.ready_q, combined_read_set);
 	free(params);
 	return NULL;
 }
@@ -649,7 +678,14 @@ int main(int argc, char **argv)
 		.max_mismatch_density = 0.25,
 		.cap_mismatch_quals = false,
 	};
-	int phred_offset           = 33;
+	struct read_format_params iparams = {
+		.fmt = READ_FORMAT_FASTQ,
+		.phred_offset = 33,
+	};
+	struct read_format_params oparams = {
+		.fmt = READ_FORMAT_FASTQ,
+		.phred_offset = 33,
+	};
 	int read_len               = 100;
 	int fragment_len           = 180;
 	int fragment_len_stddev    = 18;
@@ -659,15 +695,19 @@ int main(int argc, char **argv)
 	bool verbose               = true;
 	bool interleaved_input     = false;
 	bool interleaved_output    = false;
-	struct input_stream mates1_in = {};
-	struct input_stream mates2_in = {};
-	void *out_combined_fp      = NULL;
-	void *out_notcombined_fp_1 = NULL;
-	void *out_notcombined_fp_2 = NULL;
+	struct input_stream *mates1_in = NULL;
+	struct input_stream *mates2_in = NULL;
+	enum out_compression_type out_ctype = OUT_COMPRESSION_NONE;
+	const char *compress_prog = NULL;
+	char *compress_prog_args = "-c -";
+	bool compress_prog_args_allocated = false;
+	struct output_stream *out_combined = NULL;
+	struct output_stream *out_notcombined_1 = NULL;
+	struct output_stream *out_notcombined_2 = NULL;
+	const char *out_filetype   = "fastq";
+	char *out_suffix           = "";
 	bool out_suffix_allocated  = false;
-	char *out_suffix           = NULL;
-	int num_combiner_threads   = 0;
-	struct output_file_operations *fops = &normal_fops;
+	unsigned long num_combiner_threads = 0;
 	int c;
 	char *tmp;
 	struct timeval start_time;
@@ -700,15 +740,20 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 'p':
-			phred_offset = strtol(optarg, &tmp, 10);
+			oparams.phred_offset =
+				iparams.phred_offset =
+					strtol(optarg, &tmp, 10);
 			if (tmp == optarg || *tmp ||
-			    phred_offset < 0 || phred_offset > 127)
+			    iparams.phred_offset < 0 ||
+			    iparams.phred_offset > 127)
 			{
 				fatal_error("Phred offset must be an integer "
 					    "in the range [0, 127]!  Please "
 					    "check option -p.");
 			}
-			if (phred_offset != 33 && phred_offset != 64) {
+			if (iparams.phred_offset != 33 &&
+			    iparams.phred_offset != 64)
+			{
 				warning("Phred offset is usually either "
 				        "64 (for earlier Illumina data) or 33 "
 				        "(for Sanger and later Illumina data).");
@@ -748,6 +793,13 @@ int main(int argc, char **argv)
 		case INTERLEAVED_OUTPUT_OPTION:
 			interleaved_output = true;
 			break;
+		case TAB_DELIMITED_INPUT_OPTION:
+			iparams.fmt = READ_FORMAT_TAB_DELIMITED;
+			break;
+		case TAB_DELIMITED_OUTPUT_OPTION:
+			oparams.fmt = READ_FORMAT_TAB_DELIMITED;
+			out_filetype = "tab";
+			break;
 		case 'o':
 			prefix = optarg;
 			break;
@@ -759,20 +811,28 @@ int main(int argc, char **argv)
 			verbose = false;
 			break;
 		case 'z':
-			fops = &gzip_fops;
+			out_ctype = OUT_COMPRESSION_GZIP;
+			if (out_suffix_allocated)
+				free(out_suffix);
+			out_suffix = ".gz";
+			out_suffix_allocated = false;
+			compress_prog = NULL;
 			break;
 		case COMPRESS_PROG_OPTION:
-			pipe_fops.name = optarg;
-			if (out_suffix == NULL) {
-				out_suffix = xmalloc(strlen(optarg) + 2);
-				sprintf(out_suffix, ".%s", optarg);
-				out_suffix_allocated = true;
-			}
-			fops = &pipe_fops;
+			if (out_suffix_allocated)
+				free(out_suffix);
+			out_suffix = xmalloc(strlen(optarg) + 2);
+			sprintf(out_suffix, ".%s", optarg);
+			out_suffix_allocated = true;
 			compress_prog = optarg;
+			out_ctype = OUT_COMPRESSION_NONE;
 			break;
 		case COMPRESS_PROG_ARGS_OPTION:
-			compress_prog_args = optarg;
+			if (compress_prog_args_allocated)
+				free(compress_prog_args);
+			compress_prog_args = xmalloc(strlen(optarg) + 6);
+			sprintf(compress_prog_args, "%s -c -", optarg);
+			compress_prog_args_allocated = true;
 			break;
 		case SUFFIX_OPTION:
 			if (out_suffix_allocated)
@@ -787,8 +847,9 @@ int main(int argc, char **argv)
 			}
 			break;
 		case 't':
-			num_combiner_threads = strtol(optarg, &tmp, 10);
-			if (tmp == optarg || *tmp || num_combiner_threads < 1) {
+			num_combiner_threads = strtoul(optarg, &tmp, 10);
+			if (tmp == optarg || *tmp || num_combiner_threads < 1 ||
+			    num_combiner_threads > UINT_MAX) {
 				fatal_error("Number of threads must be "
 					    "a positive integer!  Please "
 					    "check option -t.");
@@ -809,9 +870,6 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (out_suffix != NULL && out_suffix != fops->suffix)
-		fops->suffix = out_suffix;
-
 	if (alg_params.max_overlap == 0)
 		alg_params.max_overlap = (int)(2 * read_len - fragment_len +
 					       2.5 * fragment_len_stddev);
@@ -831,78 +889,110 @@ int main(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
-	if ((interleaved_input && argc != 1) || (!interleaved_input && argc != 2)) {
+	if ((interleaved_input && argc != 1) ||
+	    (!interleaved_input && iparams.fmt != READ_FORMAT_TAB_DELIMITED &&
+	     argc != 2))
+	{
 		usage_short();
 		return 2;
 	}
 
-	init_input_stream(&mates1_in, argv[0]);
-	if (!interleaved_input)
-		init_input_stream(&mates2_in, argv[1]);
+	mates1_in = new_input_stream(argv[0]);
+	if (argc > 1)
+		mates2_in = new_input_stream(argv[1]);
 
 	mkdir_p(output_dir);
 
+	/* Open the output files.  */
+
 	char name_buf[strlen(output_dir) + 1 + strlen(prefix) +
-		      strlen(".notCombined_2.fastq") +
-		      strlen(fops->suffix) + 1];
+		      100 + strlen(out_suffix) + 1];
 	char *suffix;
 	suffix = name_buf + sprintf(name_buf, "%s/%s", output_dir, prefix);
 
-
-	/* Open the output files. */
-	if (to_stdout) {
-		out_combined_fp = fops->open_file("-", "w");
+	if (oparams.fmt == READ_FORMAT_TAB_DELIMITED) {
+		sprintf(suffix, ".readsAndPairs.%s%s", out_filetype, out_suffix);
+		out_combined = new_output_stream(out_ctype,
+						 (to_stdout ? "-" : name_buf),
+						 compress_prog,
+						 compress_prog_args);
 	} else {
-		sprintf(suffix, ".extendedFrags.fastq%s", fops->suffix);
-		out_combined_fp = fops->open_file(name_buf, "w");
+		sprintf(suffix, ".extendedFrags.%s%s", out_filetype, out_suffix);
+		out_combined = new_output_stream(out_ctype,
+						 (to_stdout ? "-" : name_buf),
+						 compress_prog,
+						 compress_prog_args);
 
-		if (interleaved_output) {
-			sprintf(suffix, ".notCombined.fastq%s", fops->suffix);
-			out_notcombined_fp_1 = fops->open_file(name_buf, "w");
-		} else {
-			sprintf(suffix, ".notCombined_1.fastq%s", fops->suffix);
-			out_notcombined_fp_1 = fops->open_file(name_buf, "w");
+		if (!to_stdout) {
+			if (interleaved_output) {
+				sprintf(suffix, ".notCombined.%s%s",
+					out_filetype, out_suffix);
+				out_notcombined_1 = new_output_stream(out_ctype,
+								      name_buf,
+								      compress_prog,
+								      compress_prog_args);
+			} else {
+				sprintf(suffix, ".notCombined_1.%s%s",
+					out_filetype, out_suffix);
+				out_notcombined_1 = new_output_stream(out_ctype,
+								      name_buf,
+								      compress_prog,
+								      compress_prog_args);
 
-			sprintf(suffix, ".notCombined_2.fastq%s", fops->suffix);
-			out_notcombined_fp_2 = fops->open_file(name_buf, "w");
+				sprintf(suffix, ".notCombined_2.%s%s",
+					out_filetype, out_suffix);
+				out_notcombined_2 = new_output_stream(out_ctype,
+								      name_buf,
+								      compress_prog,
+								      compress_prog_args);
+			}
 		}
-		*suffix = '\0';
 	}
 
+	*suffix = '\0';
+
 	if (verbose) {
+		assert(!to_stdout);
+
 		info("Starting FLASH " VERSION_STR);
 		info("Fast Length Adjustment of SHort reads");
 		info(" ");
 		info("Input files:");
-		info("    %s", argv[0]);
-		if (!interleaved_input)
-			info("    %s", argv[1]);
+		info("    %s", input_stream_get_name(mates1_in));
+		if (mates2_in)
+			info("    %s", input_stream_get_name(mates2_in));
 		info(" ");
 		info("Output files:");
-		assert(!to_stdout);
-		info("    %s.extendedFrags.fastq%s", name_buf, fops->suffix);
-		if (interleaved_output) {
-			info("    %s.notCombined.fastq%s", name_buf, fops->suffix);
-		} else {
-			info("    %s.notCombined_1.fastq%s", name_buf, fops->suffix);
-			info("    %s.notCombined_2.fastq%s", name_buf, fops->suffix);
-		}
+		info("    %s", output_stream_get_name(out_combined));
+		if (out_notcombined_1)
+			info("    %s", output_stream_get_name(out_notcombined_1));
+		if (out_notcombined_2)
+			info("    %s", output_stream_get_name(out_notcombined_2));
 		info("    %s.hist", name_buf);
 		info("    %s.histogram", name_buf);
 		info(" ");
 		info("Parameters:");
-		info("    Min overlap:          %d", alg_params.min_overlap);
-		info("    Max overlap:          %d", alg_params.max_overlap);
-		info("    Phred offset:         %d", phred_offset);
-		info("    Combiner threads:     %d", num_combiner_threads);
-		info("    Max mismatch density: %f", alg_params.max_mismatch_density);
-		info("    Cap mismatch quals:   %s", alg_params.cap_mismatch_quals ? "true" : "false");
-		info("    Output format:        %s", fops->name);
-		info("    Interleaved input:    %s", interleaved_input ? "true" : "false");
-		info("    Interleaved output:   %s", interleaved_output ? "true" : "false");
+		info("    Min overlap:           %d",
+		     alg_params.min_overlap);
+		info("    Max overlap:           %d",
+		     alg_params.max_overlap);
+		info("    Max mismatch density:  %f",
+		     alg_params.max_mismatch_density);
+		info("    Cap mismatch quals:    %s",
+		     alg_params.cap_mismatch_quals ? "true" : "false");
+		info("    Combiner threads:      %u",
+		     (unsigned)num_combiner_threads);
+
+		char buf[256];
+		info("    Input format:          %s",
+		     input_format_str(buf, ARRAY_LEN(buf),
+				      &iparams, interleaved_input));
+		info("    Output format:         %s",
+		     output_format_str(buf, ARRAY_LEN(buf),
+				       &oparams, interleaved_output,
+				       compress_prog, compress_prog_args));
 		info(" ");
 	}
-
 
 	/*
 	 * We wish to do the following:
@@ -935,62 +1025,42 @@ int main(int argc, char **argv)
 	for (size_t i = 0; i < ARRAY_LEN(combined_read_len_hists); i++)
 		hist_init(&combined_read_len_hists[i]);
 
-	struct threads threads;
-	start_fastq_readers_and_writers(&mates1_in,
-					(interleaved_input ? NULL : &mates2_in),
-					out_combined_fp,
-					out_notcombined_fp_1,
-					out_notcombined_fp_2, phred_offset,
-					fops, &threads,
-					num_combiner_threads,
-					verbose);
+	struct read_io_handle *iohandle =
+		start_readers_and_writers(mates1_in,
+					  mates2_in,
+					  out_combined,
+					  out_notcombined_1,
+					  out_notcombined_2,
+					  &iparams, &oparams,
+					  num_combiner_threads, verbose);
 	struct common_combiner_thread_params common = {
-		.threads              = &threads,
-		.alg_params           = alg_params,
-		.to_stdout            = to_stdout,
-		.unqueue_lock         = PTHREAD_MUTEX_INITIALIZER,
-		.queue_lock           = PTHREAD_MUTEX_INITIALIZER,
+		.iohandle = iohandle,
+		.alg_params = alg_params,
 	};
 
 	if (verbose)
-		info("Starting %d combiner threads", num_combiner_threads);
+		info("Starting %u combiner threads", (unsigned)num_combiner_threads);
 
 	pthread_t other_combiner_threads[num_combiner_threads - 1];
-	for (int i = 0; i < num_combiner_threads; i++) {
+	for (unsigned i = 0; i < num_combiner_threads; i++) {
 		struct combiner_thread_params *p;
-		int ret;
-		p = xmalloc(sizeof(struct combiner_thread_params));
+
+		p = xmalloc(sizeof(*p));
 		p->common = &common;
 		p->combined_read_len_hist = &combined_read_len_hists[i];
-		if (i < num_combiner_threads - 1) {
-			ret = pthread_create(&other_combiner_threads[i],
-					     NULL, combiner_thread_proc, p);
-			if (ret != 0) {
-				errno = ret;
-				fatal_error_with_errno("Could not create "
-						       "worker thread #%d",
-						       i + 1);
-			}
-		} else {
+		if (i < num_combiner_threads - 1)
+			other_combiner_threads[i] =
+					create_thread(combiner_thread_proc, p);
+		else
 			combiner_thread_proc(p);
-		}
 	}
-	for (int i = 0; i < num_combiner_threads - 1; i++) {
-		int result;
-
-		result = pthread_join(other_combiner_threads[i], NULL);
-		if (result) {
-			errno = result;
-			fatal_error_with_errno("Failed to join worker thread #%d",
-					       i + 1);
-		}
+	for (unsigned i = 0; i < num_combiner_threads - 1; i++) {
+		join_thread(other_combiner_threads[i]);
 		hist_combine(combined_read_len_hist,
 			     &combined_read_len_hists[i]);
 		hist_destroy(&combined_read_len_hists[i]);
 	}
-	pthread_mutex_destroy(&common.unqueue_lock);
-	pthread_mutex_destroy(&common.queue_lock);
-	stop_fastq_readers_and_writers(&threads);
+	stop_readers_and_writers(iohandle);
 
 	if (verbose) {
 		unsigned long num_combined_reads;
@@ -1045,5 +1115,7 @@ int main(int argc, char **argv)
 	}
 	if (out_suffix_allocated)
 		free(out_suffix);
+	if (compress_prog_args_allocated)
+		free(compress_prog_args);
 	return 0;
 }

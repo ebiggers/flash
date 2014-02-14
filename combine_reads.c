@@ -5,7 +5,7 @@
 
 /*
  * Copyright (C) 2012 Tanja Magoc
- * Copyright (C) 2012, 2013 Eric Biggers
+ * Copyright (C) 2012, 2013, 2014 Eric Biggers
  *
  * This file is part of FLASH, a fast tool to merge overlapping paired-end
  * reads.
@@ -25,9 +25,10 @@
  */
 
 #include "combine_reads.h"
-#include "fastq.h"
+#include "read.h"
 #include "util.h"
 
+#include <stdlib.h>
 
 /*
  * Align the beginning of the DNA sequence @seq_1 to the beginning of the DNA
@@ -43,15 +44,16 @@
  * The maximum overlap length considered in the scoring is @max_overlap, while
  * the minimum is @min_overlap.
  */
-static void align_position(const char * restrict seq_1,
-			   const char * restrict seq_2,
-			   const char * restrict qual_1,
-			   const char * restrict qual_2,
-			   int overlap_len,
-			   int min_overlap,
-			   int max_overlap,
-			   float *mismatch_density_ret,
-			   float *qual_score_ret)
+static void
+align_position(const char * restrict seq_1,
+	       const char * restrict seq_2,
+	       const char * restrict qual_1,
+	       const char * restrict qual_2,
+	       int overlap_len,
+	       int min_overlap,
+	       int max_overlap,
+	       float *mismatch_density_ret,
+	       float *qual_score_ret)
 {
 	int num_non_dna_chars = 0;
 	int num_mismatches = 0;
@@ -98,9 +100,10 @@ static void align_position(const char * restrict seq_1,
  * (0-based) of the best overlap between two reads, or -1 if the best overlap
  * does not satisfy the required threshold.
  */
-static int pair_align(const struct read *read_1, const struct read *read_2,
-		      int min_overlap, int max_overlap,
-		      float max_mismatch_density)
+static int
+pair_align(const struct read *read_1, const struct read *read_2,
+	   int min_overlap, int max_overlap,
+	   float max_mismatch_density)
 {
 	/* Best (smallest) mismatch density that has been found so far in an
 	 * overlap. */
@@ -164,9 +167,10 @@ static int pair_align(const struct read *read_1, const struct read *read_2,
  *  URL:     http://bioinformatics.oxfordjournals.org/content/27/21/2957.full
  *
  */
-bool combine_reads(const struct read *read_1, const struct read *read_2,
-		   struct read *combined_read,
-		   const struct combine_params *params)
+bool
+combine_reads(const struct read *read_1, const struct read *read_2,
+	      struct read *combined_read,
+	      const struct combine_params *params)
 {
 	/* Starting position of the alignment in the first read, 0-based. */
 	int overlap_begin;
@@ -207,14 +211,18 @@ bool combine_reads(const struct read *read_1, const struct read *read_2,
 	if (combined_read->seq_bufsz < combined_seq_len) {
 		combined_read->seq = xrealloc(combined_read->seq,
 					      combined_seq_len);
+		combined_read->seq_bufsz = combined_seq_len;
+	}
+	if (combined_read->qual_bufsz < combined_seq_len) {
 		combined_read->qual = xrealloc(combined_read->qual,
 					       combined_seq_len);
-		combined_read->seq_bufsz = combined_seq_len;
+		combined_read->qual_bufsz = combined_seq_len;
 	}
 
 	combined_seq = combined_read->seq;
 	combined_qual = combined_read->qual;
 	combined_read->seq_len = combined_seq_len;
+	combined_read->qual_len = combined_seq_len;
 
 	/* Copy the beginning of the first read. */
 	while (overlap_begin--) {
