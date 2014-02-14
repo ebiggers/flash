@@ -9,7 +9,7 @@ struct input_stream;
 struct read;
 
 struct read_format_params {
-	enum read_format_enum {
+	enum {
 		READ_FORMAT_FASTQ,
 		READ_FORMAT_TAB_DELIMITED,
 	} fmt;

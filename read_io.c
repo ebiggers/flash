@@ -36,7 +36,7 @@
  ******************************************/
 
 static bool
-next_fastq_read(struct input_stream *in, struct read *r,
+load_fastq_read(struct input_stream *in, struct read *r,
 		uint64_t *line_no_p)
 {
 	ssize_t ret;
@@ -95,7 +95,7 @@ too_long:
 }
 
 static bool
-next_tab_delimited_read(struct input_stream *in, struct read *r,
+load_tab_delimited_read(struct input_stream *in, struct read *r,
 			uint64_t *line_no_p)
 {
 	ssize_t ret;
@@ -152,13 +152,13 @@ expected_newline:
 }
 
 static bool
-next_tab_delimited_pair(struct input_stream *in,
+load_tab_delimited_pair(struct input_stream *in,
 			struct read *r1, struct read *r2, uint64_t *line_no_p)
 {
 	ssize_t ret;
 	const char *delims = "\t\n";
 
-	/* tag <tab> seq_1 <tab> qua_1 <tab> seq_2 <tab> qual_2 <newline>  */
+	/* tag <tab> seq_1 <tab> qual_1 <tab> seq_2 <tab> qual_2 <newline>  */
 
 	ret = input_stream_getdelims(in, &r1->tag, &r1->tag_bufsz, delims);
 	if (ret <= 0)
@@ -289,10 +289,10 @@ load_read(struct input_stream *in, const struct read_format_params *iparams,
 
 	switch (iparams->fmt) {
 	case READ_FORMAT_FASTQ:
-		ret = next_fastq_read(in, r, line_no_p);
+		ret = load_fastq_read(in, r, line_no_p);
 		break;
 	case READ_FORMAT_TAB_DELIMITED:
-		ret = next_tab_delimited_read(in, r, line_no_p);
+		ret = load_tab_delimited_read(in, r, line_no_p);
 		break;
 	default:
 		assert(0);
@@ -318,13 +318,14 @@ load_read_pair(struct input_stream *in, const struct read_format_params *iparams
 
 	switch (iparams->fmt) {
 	case READ_FORMAT_FASTQ:
-		ret = next_fastq_read(in, r1, line_no_p);
-		if (ret && !next_fastq_read(in, r2, line_no_p))
-			fatal_error("Invalid unpaired read in \"%s\"",
+		ret = load_fastq_read(in, r1, line_no_p);
+		if (ret && !load_fastq_read(in, r2, line_no_p))
+			fatal_error("Interleaved FASTQ file \"%s\" has an "
+				    "odd number of reads",
 				    input_stream_get_name(in));
 		break;
 	case READ_FORMAT_TAB_DELIMITED:
-		ret = next_tab_delimited_pair(in, r1, r2, line_no_p);
+		ret = load_tab_delimited_pair(in, r1, r2, line_no_p);
 		break;
 	default:
 		assert(0);

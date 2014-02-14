@@ -37,7 +37,7 @@
 #include <unistd.h>
 #include <zlib.h>
 
-/* Return true if the specified string is a single hyphen, which may represent
+/* Return true iff the specified string is a single hyphen, which may represent
  * standard input or standard output.  */
 static bool
 string_is_hyphen(const char *str)

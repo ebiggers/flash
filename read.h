@@ -23,7 +23,7 @@ struct read {
 	/* Length of the quality string (will be equal to seq_len).  */
 	int qual_len;
 
-	/* Allocated size of the seq, tag, and qual buffers respectively.  */
+	/* Allocated sizes of the seq, tag, and qual buffers, respectively.  */
 	size_t seq_bufsz;
 	size_t tag_bufsz;
 	size_t qual_bufsz;
