@@ -372,15 +372,26 @@ static char *
 output_format_str(char *buf, size_t bufsize,
 		  const struct read_format_params *oparams,
 		  bool interleaved_output,
+		  enum out_compression_type out_ctype,
 		  const char *compress_prog,
 		  const char *compress_prog_args)
 {
 	input_format_str(buf, bufsize, oparams, interleaved_output);
-	if (compress_prog) {
-		char *p = strchr(buf, '\0');
-		snprintf(p, &buf[bufsize] - p,
-			", filtered through '%s %s'",
-			compress_prog, compress_prog_args);
+	switch (out_ctype) {
+	case OUT_COMPRESSION_NONE:
+		if (compress_prog) {
+			char *p = strchr(buf, '\0');
+			snprintf(p, &buf[bufsize] - p,
+				", filtered through '%s %s'",
+				compress_prog, compress_prog_args);
+		}
+		break;
+	case OUT_COMPRESSION_GZIP:
+		{
+			char *p = strchr(buf, '\0');
+			snprintf(p, &buf[bufsize] - p, ", gzip");
+		}
+		break;
 	}
 	return buf;
 }
@@ -1080,6 +1091,7 @@ int main(int argc, char **argv)
 		info("    Output format:         %s",
 		     output_format_str(buf, ARRAY_LEN(buf),
 				       &oparams, interleaved_output,
+				       out_ctype,
 				       compress_prog, compress_prog_args));
 		info(" ");
 	}
