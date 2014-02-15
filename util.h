@@ -22,7 +22,7 @@
 #else
 #	define __noreturn
 #	define __cold
-#	define __format
+#	define __format(type, format_str, args_start)
 #	define max(a,b) (((a) > (b)) ? (a) : (b))
 #	define min(a,b) (((a) < (b)) ? (a) : (b))
 #endif
