@@ -137,6 +137,13 @@ unlock_stderr(void)
 
 #define PROGRAM_TAG "[FLASH] "
 
+static void __noreturn
+fatal(void)
+{
+	info("FLASH did not complete successfully; exiting with failure status (1)");
+	exit(1);
+}
+
 /* Prints an error message and exits the program with failure status.  */
 void
 fatal_error(const char *msg, ...)
@@ -151,7 +158,10 @@ fatal_error(const char *msg, ...)
 	vfprintf(stderr, msg, va);
 	putc('\n', stderr);
 	va_end(va);
-	exit(1);
+
+	unlock_stderr();
+
+	fatal();
 }
 
 /* Prints an error message, with added text for errno if it is nonzero, and
@@ -172,7 +182,10 @@ fatal_error_with_errno(const char *msg, ...)
 	else
 		putc('\n', stderr);
 	va_end(va);
-	exit(1);
+
+	unlock_stderr();
+
+	fatal();
 }
 
 /* Prints a warning message.  */
