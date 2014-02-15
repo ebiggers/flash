@@ -166,7 +166,8 @@ static void usage(void)
 "  -I, --interleaved       Equivalent to specifying both --interleaved-input\n"
 "                          and --interleaved-output.\n"
 "\n"
-"  --tab-delimited-input   Assume the input is in tab-delimited format\n"
+"  -Ti, --tab-delimited-input\n"
+"                          Assume the input is in tab-delimited format\n"
 "                          rather than FASTQ, in the format described below in\n"
 "                          '--tab-delimited-output'.  In this mode you should\n"
 "                          provide a single input file, each line of which must\n"
@@ -178,7 +179,8 @@ static void usage(void)
 "                          specify \"-\" as the input file to read the\n"
 "                          tab-delimited data from standard input.\n"
 "\n"
-"  --tab-delimited-output  Write output in tab-delimited format (not FASTQ).\n"
+"  -To, --tab-delimited-output\n"
+"                          Write output in tab-delimited format (not FASTQ).\n"
 "                          Each line will contain either a combined pair in the\n"
 "                          format 'tag <tab> seq <tab> qual' or an uncombined\n"
 "                          pair in the format 'tag <tab> seq_1 <tab> qual_1\n"
@@ -268,7 +270,7 @@ enum {
 	TAB_DELIMITED_OUTPUT_OPTION,
 };
 
-static const char *optstring = "m:M:x:p:r:f:s:Io:d:czt:qhv";
+static const char *optstring = "m:M:x:p:r:f:s:IT:o:d:czt:qhv";
 static const struct option longopts[] = {
 	{"min-overlap",          required_argument,  NULL, 'm'},
 	{"max-overlap",          required_argument,  NULL, 'M'},
@@ -860,12 +862,23 @@ int main(int argc, char **argv)
 		case INTERLEAVED_OUTPUT_OPTION:
 			interleaved_output = true;
 			break;
+		case 'T':
+			if ((*optarg != 'i' && *optarg != 'o') ||
+			    *(optarg + 1))
+			{
+				fatal_error("Invalid option -T%s!  Use -Ti "
+					    "(short for --tab-delimited-input)\n\t"
+					    "or -To (short for "
+					    "--tab-delimited-output)", optarg);
+			}
+			if (*optarg == 'i') {
 		case TAB_DELIMITED_INPUT_OPTION:
-			iparams.fmt = READ_FORMAT_TAB_DELIMITED;
-			break;
+				iparams.fmt = READ_FORMAT_TAB_DELIMITED;
+			} else {
 		case TAB_DELIMITED_OUTPUT_OPTION:
-			oparams.fmt = READ_FORMAT_TAB_DELIMITED;
-			out_filetype = "tab";
+				oparams.fmt = READ_FORMAT_TAB_DELIMITED;
+				out_filetype = "tab";
+			}
 			break;
 		case 'o':
 			prefix = optarg;

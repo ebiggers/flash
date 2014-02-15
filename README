@@ -151,7 +151,8 @@ OPTIONS:
   -I, --interleaved       Equivalent to specifying both --interleaved-input
                           and --interleaved-output.
 
-  --tab-delimited-input   Assume the input is in tab-delimited format
+  -Ti, --tab-delimited-input
+                          Assume the input is in tab-delimited format
                           rather than FASTQ, in the format described below in
                           '--tab-delimited-output'.  In this mode you should
                           provide a single input file, each line of which must
@@ -163,7 +164,8 @@ OPTIONS:
                           specify "-" as the input file to read the
                           tab-delimited data from standard input.
 
-  --tab-delimited-output  Write output in tab-delimited format (not FASTQ).
+  -To, --tab-delimited-output
+                          Write output in tab-delimited format (not FASTQ).
                           Each line will contain either a combined pair in the
                           format 'tag <tab> seq <tab> qual' or an uncombined
                           pair in the format 'tag <tab> seq_1 <tab> qual_1
