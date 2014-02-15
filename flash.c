@@ -185,25 +185,33 @@ static void usage(void)
 "                          Path to directory for output files.  Default:\n"
 "                          current working directory.\n"
 "\n"
-"  -c, --to-stdout         Write the combined reads to standard output; do not\n"
-"                          write uncombined reads to anywhere.\n"
+"  -c, --to-stdout         Write the combined reads to standard output.  In\n"
+"                          this mode, with FASTQ output (the default) the\n"
+"                          uncombined reads are discarded.  With tab-delimited\n"
+"                          output, uncombined reads are included in the\n"
+"                          tab-delimited data written to standard output.\n"
+"                          In both cases, histogram files are not written,\n"
+"                          and informational messages are sent to standard\n"
+"                          error rather than to standard output.\n"
 "\n"
-"  -z, --compress          Compress the FASTQ output files directly with zlib.\n"
-"                          Similar to specifying --compress-prog=gzip and\n"
-"                          --suffix=gz, but may be slightly faster.\n"
+"  -z, --compress          Compress the output files directly with zlib,\n"
+"                          using the gzip container format.  Similar to\n"
+"                          specifying --compress-prog=gzip and --suffix=gz,\n"
+"                          but may be slightly faster.\n"
 "\n"
 "  --compress-prog=PROG    Pipe the output through the compression program\n"
 "                          PROG, which will be called as `PROG -c -',\n"
 "                          plus any arguments specified by --compress-prog-args.\n"
 "                          PROG must read uncompressed data from standard input\n"
-"                          and write compressed data to standard output.\n"
+"                          and write compressed data to standard output when\n"
+"                          invoked as noted above.\n"
 "                          Examples: gzip, bzip2, xz, pigz.\n"
 "\n"
 "  --compress-prog-args=ARGS\n"
 "                          A string of additional arguments that will be passed\n"
 "                          to the compression program if one is specified with\n"
-"                          --compress-prog.  (The arguments '-c -' are still\n"
-"                          passed in addition to explicitly specified\n"
+"                          --compress-prog=PROG.  (The arguments '-c -' are\n"
+"                          still passed in addition to explicitly specified\n"
 "                          arguments.)\n"
 "\n"
 "  --suffix=SUFFIX, --output-suffix=SUFFIX\n"
@@ -211,7 +219,7 @@ static void usage(void)
 "                          after \".fastq\".  A dot before the suffix is assumed,\n"
 "                          unless an empty suffix is provided.  Default:\n"
 "                          nothing; or 'gz' if -z is specified; or PROG if\n"
-"                          --compress-prog is specified.\n"
+"                          --compress-prog=PROG is specified.\n"
 "\n"
 "  -t, --threads=NTHREADS  Set the number of worker threads.  This is in\n"
 "                          addition to the I/O threads.  Default: number of\n"
@@ -220,8 +228,7 @@ static void usage(void)
 "                          the original reads, you must specify -t 1\n"
 "                          (--threads=1).\n"
 "\n"
-"  -q, --quiet             Do not print informational messages.  (Implied with\n"
-"                          --to-stdout.)\n"
+"  -q, --quiet             Do not print informational messages.\n"
 "\n"
 "  -h, --help              Display this help and exit.\n"
 "\n"
@@ -675,6 +682,8 @@ no_more_reads:
 
 int main(int argc, char **argv)
 {
+	infofile = stdout;
+
 	struct combine_params alg_params = {
 		.max_overlap = 0,
 		.min_overlap = 10,
@@ -811,7 +820,7 @@ int main(int argc, char **argv)
 			break;
 		case 'c':
 			to_stdout = true;
-			verbose = false;
+			infofile = stderr;
 			break;
 		case 'z':
 			out_ctype = OUT_COMPRESSION_GZIP;
@@ -963,8 +972,6 @@ int main(int argc, char **argv)
 	*suffix = '\0';
 
 	if (verbose) {
-		assert(!to_stdout);
-
 		info("Starting FLASH " VERSION_STR);
 		info("Fast Length Adjustment of SHort reads");
 		info(" ");

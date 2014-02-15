@@ -4,6 +4,8 @@ Version 1.2.9-beta
 - FLASH now displays more informative error messages in some cases.
 - Reorganized some of the code so that it's easier to modify.
 - Reading the data from standard input now works correctly.
+- With --to-stdout specified, informational messages are now written to standard
+  error rather than omitted.
 
 Version 1.2.8
 -------------------

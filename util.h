@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <stddef.h>
 #include <pthread.h>
+#include <stdio.h>
 
 #define ARRAY_LEN(A) (sizeof(A) / sizeof((A)[0]))
 
@@ -34,6 +35,8 @@ fatal_error_with_errno(const char *msg, ...) __noreturn __cold __format(printf, 
 
 extern void
 warning(const char *msg, ...) __cold __format(printf, 1, 2);
+
+extern FILE *infofile;
 
 extern void
 info(const char *msg, ...) __format(printf, 1, 2);

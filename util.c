@@ -88,17 +88,20 @@ const char complement_tab[] = {
 
 
 #ifdef __WIN32__
-static pthread_mutex_t stdout_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t infofile_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t stderr_lock = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
+/* File to which to write informational messages.  */
+FILE *infofile;
+
 static void
-lock_stdout(void)
+lock_infofile(void)
 {
 #ifdef __WIN32__
-	pthread_mutex_lock(&stdout_lock);
+	pthread_mutex_lock(&infofile_lock);
 #else
-	flockfile(stdout);
+	flockfile(infofile);
 #endif
 }
 
@@ -113,12 +116,12 @@ lock_stderr(void)
 }
 
 static void
-unlock_stdout(void)
+unlock_infofile(void)
 {
 #ifdef __WIN32__
-	pthread_mutex_unlock(&stdout_lock);
+	pthread_mutex_unlock(&infofile_lock);
 #else
-	funlockfile(stdout);
+	funlockfile(infofile);
 #endif
 }
 
@@ -195,16 +198,16 @@ info(const char *msg, ...)
 {
 	va_list va;
 
-	lock_stdout();
+	lock_infofile();
 
 	va_start(va, msg);
-	fputs(PROGRAM_TAG, stdout);
-	vprintf(msg, va);
-	putchar('\n');
-	fflush(stdout);
+	fputs(PROGRAM_TAG, infofile);
+	vfprintf(infofile, msg, va);
+	putc('\n', infofile);
+	fflush(infofile);
 	va_end(va);
 
-	unlock_stdout();
+	unlock_infofile();
 }
 
 /* Like malloc(), but aborts if out of memory, and always returns non-NULL, even
