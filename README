@@ -152,10 +152,16 @@ OPTIONS:
                           and --interleaved-output.
 
   --tab-delimited-input   Assume the input is in tab-delimited format
-                          rather than FASTQ, described below.  In this
-                          mode you should provide a single input file,
-                          each line of which contains a read pair.  Specify
-                          "-" to read from standard input.
+                          rather than FASTQ, in the format described below in
+                          '--tab-delimited-output'.  In this mode you should
+                          provide a single input file, each line of which must
+                          contain either a read pair (5 fields) or a single
+                          read (3 fields).  FLASH will try to combine the read
+                          pairs.  Single reads will be written to the output
+                          file as-is if also using --tab-delimited-output;
+                          otherwise they will be ignored.  Note that you may
+                          specify "-" as the input file to read the
+                          tab-delimited data from standard input.
 
   --tab-delimited-output  Write output in tab-delimited format (not FASTQ).
                           Each line will contain either a combined pair in the
@@ -170,25 +176,33 @@ OPTIONS:
                           Path to directory for output files.  Default:
                           current working directory.
 
-  -c, --to-stdout         Write the combined reads to standard output; do not
-                          write uncombined reads to anywhere.
+  -c, --to-stdout         Write the combined reads to standard output.  In
+                          this mode, with FASTQ output (the default) the
+                          uncombined reads are discarded.  With tab-delimited
+                          output, uncombined reads are included in the
+                          tab-delimited data written to standard output.
+                          In both cases, histogram files are not written,
+                          and informational messages are sent to standard
+                          error rather than to standard output.
 
-  -z, --compress          Compress the FASTQ output files directly with zlib.
-                          Similar to specifying --compress-prog=gzip and
-                          --suffix=gz, but may be slightly faster.
+  -z, --compress          Compress the output files directly with zlib,
+                          using the gzip container format.  Similar to
+                          specifying --compress-prog=gzip and --suffix=gz,
+                          but may be slightly faster.
 
   --compress-prog=PROG    Pipe the output through the compression program
                           PROG, which will be called as `PROG -c -',
                           plus any arguments specified by --compress-prog-args.
                           PROG must read uncompressed data from standard input
-                          and write compressed data to standard output.
+                          and write compressed data to standard output when
+                          invoked as noted above.
                           Examples: gzip, bzip2, xz, pigz.
 
   --compress-prog-args=ARGS
                           A string of additional arguments that will be passed
                           to the compression program if one is specified with
-                          --compress-prog.  (The arguments '-c -' are still
-                          passed in addition to explicitly specified
+                          --compress-prog=PROG.  (The arguments '-c -' are
+                          still passed in addition to explicitly specified
                           arguments.)
 
   --suffix=SUFFIX, --output-suffix=SUFFIX
@@ -196,7 +210,7 @@ OPTIONS:
                           after ".fastq".  A dot before the suffix is assumed,
                           unless an empty suffix is provided.  Default:
                           nothing; or 'gz' if -z is specified; or PROG if
-                          --compress-prog is specified.
+                          --compress-prog=PROG is specified.
 
   -t, --threads=NTHREADS  Set the number of worker threads.  This is in
                           addition to the I/O threads.  Default: number of
@@ -205,8 +219,7 @@ OPTIONS:
                           the original reads, you must specify -t 1
                           (--threads=1).
 
-  -q, --quiet             Do not print informational messages.  (Implied with
-                          --to-stdout.)
+  -q, --quiet             Do not print informational messages.
 
   -h, --help              Display this help and exit.
 

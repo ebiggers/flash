@@ -167,10 +167,16 @@ static void usage(void)
 "                          and --interleaved-output.\n"
 "\n"
 "  --tab-delimited-input   Assume the input is in tab-delimited format\n"
-"                          rather than FASTQ, described below.  In this\n"
-"                          mode you should provide a single input file,\n"
-"                          each line of which contains a read pair.  Specify\n"
-"                          \"-\" to read from standard input.\n"
+"                          rather than FASTQ, in the format described below in\n"
+"                          '--tab-delimited-output'.  In this mode you should\n"
+"                          provide a single input file, each line of which must\n"
+"                          contain either a read pair (5 fields) or a single\n"
+"                          read (3 fields).  FLASH will try to combine the read\n"
+"                          pairs.  Single reads will be written to the output\n"
+"                          file as-is if also using --tab-delimited-output;\n"
+"                          otherwise they will be ignored.  Note that you may\n"
+"                          specify \"-\" as the input file to read the\n"
+"                          tab-delimited data from standard input.\n"
 "\n"
 "  --tab-delimited-output  Write output in tab-delimited format (not FASTQ).\n"
 "                          Each line will contain either a combined pair in the\n"
@@ -377,6 +383,36 @@ output_format_str(char *buf, size_t bufsize,
 	return buf;
 }
 
+static inline char
+identity_mapping(char c)
+{
+	return c;
+}
+
+/* Reverse a sequence of @len chars, applying the mapping function @map_char to
+ * each, including the middle char if @len is odd.  */
+static inline void
+reverse_with_mapping(char *p, size_t len, char (*map_char)(char))
+{
+	char tmp;
+	char *pp = p + len;
+	while (pp > p) {
+		--pp;
+		tmp = *p;
+		*p = (*map_char)(*pp);
+		*pp = (*map_char)(tmp);
+		++p;
+	}
+}
+
+/* Reverse-complement a read in place.  */
+static void
+reverse_complement(struct read *r)
+{
+	reverse_with_mapping(r->seq, r->seq_len, complement);
+	reverse_with_mapping(r->qual, r->seq_len, identity_mapping);
+}
+
 /* This is just a dynamic array used as a histogram.  It's needed to count the
  * frequencies of the lengths of the combined reads. */
 struct histogram {
@@ -392,7 +428,7 @@ static void hist_init(struct histogram *hist)
 
 static void hist_destroy(struct histogram *hist)
 {
-	free(hist->array);
+	xfree(hist->array, hist->len * sizeof(hist->array[0]));
 }
 
 static void hist_add(struct histogram *hist, unsigned long idx,
@@ -521,6 +557,63 @@ struct combiner_thread_params {
 	struct histogram *combined_read_len_hist;
 };
 
+/* Buffer for read_sets for which all the read pointers have been invalidated.
+ */
+struct empty_sets {
+	struct read_set *q1[2];
+	struct read_set *q2[2];
+};
+
+static void
+hold_empty_set(struct read_set *q[2], struct read_set *s)
+{
+	if (!q[0]) {
+		q[0] = s;
+	} else {
+		assert(!q[1]);
+		q[1] = s;
+	}
+}
+
+static void
+hold_empty_sets(struct empty_sets *e, struct read_set *s1, struct read_set *s2)
+{
+	hold_empty_set(e->q1, s1);
+	hold_empty_set(e->q2, s2);
+}
+
+static struct read_set *
+get_empty_set(struct read_set *q[2])
+{
+	struct read_set *s;
+
+	assert(q[0]);
+	s = q[0];
+	q[0] = q[1];
+	q[1] = NULL;
+
+	return s;
+}
+
+static void
+get_empty_sets(struct empty_sets *e,
+	       struct read_set **s1_ret, struct read_set **s2_ret)
+{
+
+	*s1_ret = get_empty_set(e->q1);
+	*s2_ret = get_empty_set(e->q2);
+}
+
+static void
+free_empty_sets(struct empty_sets *e)
+{
+	free_read_set(e->q1[0]);
+	free_read_set(e->q1[1]);
+
+	free_read_set(e->q2[0]);
+	free_read_set(e->q2[1]);
+}
+
 /* This procedure is executed in parallel by all the combiner threads. */
 static void *combiner_thread_proc(void *_params)
 {
@@ -530,153 +623,115 @@ static void *combiner_thread_proc(void *_params)
 	struct read_io_handle *iohandle = params->common->iohandle;
 	const struct combine_params *alg_params = &params->common->alg_params;
 
-	struct read_set *read_set_1;
-	struct read_set *read_set_2;
-	struct read_set *to_reader_1 = new_empty_read_set();
-	struct read_set *to_reader_2 = new_empty_read_set();
-	struct read_set *to_writer_1 = new_empty_read_set();
-	struct read_set *to_writer_2 = new_empty_read_set();
-	struct read_set *empty_read_set_1 = NULL;
-	struct read_set *empty_read_set_2 = NULL;
-	unsigned to_reader_filled = 0;
-	unsigned to_writer_filled = 0;
-	struct read_set *combined_read_set = get_empty_read_set(iohandle);
-	unsigned combined_read_filled = 0;
-	struct read *combined_read;
-	struct read *read_1;
-	struct read *read_2;
-	unsigned i;
-	unsigned j;
-	bool combination_successful;
+	struct read_set *s_avail_1 = new_empty_read_set();
+	struct read_set *s_avail_2 = new_empty_read_set();
+	struct read_set *s_uncombined_1 = new_empty_read_set();
+	struct read_set *s_uncombined_2 = new_empty_read_set();
+	struct read_set *s_combined = get_avail_read_set(iohandle);
+	struct empty_sets empty = {};
 
-	for (;;) {
+	struct read_set *s1;
+	struct read_set *s2;
 
-		/* Get some read pairs to process.  */
-		get_unprocessed_read_pairs(iohandle, &read_set_1, &read_set_2);
+	/* While there are read pairs to process ...  */
+	while (get_unprocessed_read_pairs(iohandle, &s1, &s2)) {
 
-		/* Process each read pair.  */
-		for (i = 0; i < READS_PER_READ_SET; i++) {
+		/* ... process each read pair.  */
+		for (size_t i = 0; i < s1->filled; i++) {
+			struct read *r1 = s1->reads[i];
+			struct read *r2 = s2->reads[i];
+			struct read *r_combined;
 
-			read_1 = read_set_1->reads[i];
-			read_2 = read_set_2->reads[i];
+			s1->reads[i] = NULL;
+			s2->reads[i] = NULL;
 
-			if (!read_1 || !read_2) {
-				if (read_1 || read_2) {
-					fatal_error("Input reads files do not "
-						    "contain the same number of "
-						    "reads!");
+			reverse_complement(r2);
+
+			/* Get available read in which to try the combination.
+			 */
+			r_combined = s_combined->reads[s_combined->filled];
+
+			/* Try combining the reads.  */
+			if (combine_reads(r1, r2, r_combined, alg_params)) {
+
+				/* Combination was successful.  */
+
+				/* Uncombined read structures are unneeded; mark
+				 * them as available.  */
+
+				if (s_avail_1->filled == READS_PER_READ_SET) {
+					put_avail_read_pairs(iohandle,
+							     s_avail_1,
+							     s_avail_2);
+					get_empty_sets(&empty,
+						       &s_avail_1,
+						       &s_avail_2);
 				}
-				/* End-of file reached; break out of the outer
-				 * loop. */
-				goto no_more_reads;
-			}
+				s_avail_1->reads[s_avail_1->filled++] = r1;
+				s_avail_2->reads[s_avail_2->filled++] = r2;
 
-			reverse_complement(read_2->seq, read_2->seq_len);
-			reverse(read_2->qual, read_2->seq_len);
-
-			/* Next available combined read in the combined_read_set
-			 * */
-			combined_read = combined_read_set->reads[combined_read_filled];
-
-			/* Try combining the reads. */
-			combination_successful = combine_reads(read_1, read_2,
-							       combined_read,
-							       alg_params);
-			if (combination_successful) {
-				/* Combination was successful. */
-
+				/* Tally length of combined read.  */
 				hist_inc(combined_read_len_hist,
-					 combined_read->seq_len);
+					 r_combined->seq_len);
 
-				get_combined_tag(read_1, read_2, combined_read);
+				/* Compute tag for combined read.  */
+				get_combined_tag(r1, r2, r_combined);
 
-				if (++combined_read_filled == READS_PER_READ_SET) {
-					put_combined_reads(iohandle, combined_read_set);
-					combined_read_set = get_empty_read_set(iohandle);
-					combined_read_filled = 0;
+				/* Send combined read.  */
+				if (++s_combined->filled == READS_PER_READ_SET) {
+					put_combined_reads(iohandle, s_combined);
+					s_combined = get_avail_read_set(iohandle);
 				}
 			} else {
+				/* Tally 0 length for pair that could not be
+				 * combined.  */
 				hist_inc(combined_read_len_hist, 0);
-			}
 
-			read_set_1->reads[i] = NULL;
-			read_set_2->reads[i] = NULL;
-
-			if (i == READS_PER_READ_SET - 1) {
-				assert(empty_read_set_1 == NULL);
-				assert(empty_read_set_2 == NULL);
-				empty_read_set_1 = read_set_1;
-				empty_read_set_2 = read_set_2;
-			}
-
-			if (combination_successful) {
-				/* We do not need to write the uncombined reads
-				 * because the reads were combined.  */
-
-				to_reader_1->reads[to_reader_filled] = read_1;
-				to_reader_2->reads[to_reader_filled] = read_2;
-				if (++to_reader_filled == READS_PER_READ_SET) {
-					put_empty_read_pairs(iohandle,
-							     to_reader_1,
-							     to_reader_2);
-					to_reader_filled = 0;
-					assert(empty_read_set_1 != NULL);
-					assert(empty_read_set_2 != NULL);
-					to_reader_1 = empty_read_set_1;
-					to_reader_2 = empty_read_set_2;
-					empty_read_set_1 = NULL;
-					empty_read_set_2 = NULL;
-				}
-			} else {
-				/* We need to write the uncombined reads,
-				 * because they were not combined, and we are
-				 * not writing to stdout.  So enqueue them in
-				 * the queues for the writer threads. */
-				to_writer_1->reads[to_writer_filled] = read_1;
-				to_writer_2->reads[to_writer_filled] = read_2;
-				reverse_complement(read_2->seq, read_2->seq_len);
-				reverse(read_2->qual, read_2->seq_len);
-				if (++to_writer_filled == READS_PER_READ_SET) {
+				/* Send uncombined reads.  */
+				if (s_uncombined_1->filled == READS_PER_READ_SET) {
 					put_uncombined_read_pairs(iohandle,
-								  to_writer_1,
-								  to_writer_2);
-					to_writer_filled = 0;
-					assert(empty_read_set_1 != NULL);
-					assert(empty_read_set_2 != NULL);
-					to_writer_1 = empty_read_set_1;
-					to_writer_2 = empty_read_set_2;
-					empty_read_set_1 = NULL;
-					empty_read_set_2 = NULL;
+								  s_uncombined_1,
+								  s_uncombined_2);
+					get_empty_sets(&empty,
+						       &s_uncombined_1,
+						       &s_uncombined_2);
 				}
+
+				s_uncombined_1->reads[s_uncombined_1->filled++] = r1;
+				s_uncombined_2->reads[s_uncombined_2->filled++] = r2;
+				reverse_complement(r2);
 			}
 		}
-	}
-no_more_reads:
-	/* This combiner thread has been signalled by the reader(s) that there
-	 * are no more reads. */
 
-	/* Only the first @combined_read_filled reads in the @combined_read_set
-	 * are actually ready to be written.  The rest need to be freed, but not
-	 * written; and the read set needs to be NULL-terminated to signal the
-	 * combined read writer that there are no more reads from this combiner
-	 * thread. */
-	for (j = combined_read_filled; j < READS_PER_READ_SET; j++) {
-		free_read(combined_read_set->reads[j]);
-		combined_read_set->reads[j] = NULL;
+		s1->filled = 0;
+		s2->filled = 0;
+		hold_empty_sets(&empty, s1, s2);
 	}
+
+	/* No more reads to combine.  */
 
 	/* Free read sets owned by this thread  */
-	free_read_set(to_reader_1);
-	free_read_set(to_reader_2);
-	free_read_set(read_set_1);
-	free_read_set(read_set_2);
-	free_read_set(empty_read_set_1);
-	free_read_set(empty_read_set_2);
+	free_read_set(s_avail_1);
+	free_read_set(s_avail_2);
+	free_empty_sets(&empty);
 
-	put_uncombined_read_pairs(iohandle, to_writer_1, to_writer_2);
-	put_combined_reads(iohandle, combined_read_set);
+	/* Send out any remaining uncombined and combined reads.
+	 * If there are none, free the corresponding read sets.  */
 
-	free(params);
+	if (s_uncombined_1->filled) {
+		put_uncombined_read_pairs(iohandle, s_uncombined_1, s_uncombined_2);
+	} else {
+		free_read_set(s_uncombined_1);
+		free_read_set(s_uncombined_2);
+	}
+	if (s_combined->filled)
+		put_combined_reads(iohandle, s_combined);
+	else
+		free_read_set(s_combined);
+
+	notify_combiner_terminated(iohandle);
+
+	xfree(params, sizeof(*params));
 	return NULL;
 }
 

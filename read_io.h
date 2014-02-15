@@ -16,8 +16,8 @@ struct read_format_params {
 	int phred_offset;
 };
 
-/* Returns true iff the specified read format supports output of both unpaired
- * and paired reads to the same file.  */
+/* Returns true iff the specified read format supports both unpaired and paired
+ * reads in the same file.  */
 static inline bool
 read_format_supports_mixed_reads(const struct read_format_params *params)
 {

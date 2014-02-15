@@ -10,7 +10,7 @@
 
 #ifdef __GNUC__
 #	if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4)
-# 		define __cold __attribute__((cold))
+#		define __cold __attribute__((cold))
 #	else
 #		define __cold
 #	endif
@@ -19,6 +19,7 @@
 			__attribute__((format(type, format_str, args_start)))
 #	define max(a,b) ({ __typeof__(a) _a = (a); __typeof__(b) _b = (b); _a > _b ? _a : _b; })
 #	define min(a,b) ({ __typeof__(a) _a = (a); __typeof__(b) _b = (b); _a < _b ? _a : _b; })
+#	define inline inline __attribute__((always_inline))
 #else
 #	define __noreturn
 #	define __cold
@@ -76,15 +77,13 @@ trim(char *s, size_t len)
 	return len;
 }
 
-extern const char canonical_ascii_tab[];
-extern const char complement_tab[];
-
 /* Turns lowercase a, c, g, t into uppercase;
  * uppercase A, C, G, T stay the same;
  * everything else turns into 'N'.  */
 static inline char
 canonical_ascii_char(char c)
 {
+	extern const char canonical_ascii_tab[];
 	return canonical_ascii_tab[(unsigned char)c];
 }
 
@@ -92,35 +91,8 @@ canonical_ascii_char(char c)
 static inline char
 complement(char c)
 {
+	extern const char complement_tab[];
 	return complement_tab[(unsigned char)c];
-}
-
-/* Reverse a string. */
-static inline void
-reverse(char *p, size_t len)
-{
-	char *pp = p + len - 1;
-	while (p < pp) {
-		char tmp = *p;
-		*p = *pp;
-		*pp = tmp;
-		p++;
-		pp--;
-	}
-}
-
-/* Reverse complement an ASCII DNA sequence. */
-static inline void
-reverse_complement(char *p, size_t len)
-{
-	char *pp = p + len - 1;
-	while (p <= pp) {
-		char tmp = *p;
-		*p = complement(*pp);
-		*pp = complement(tmp);
-		p++;
-		pp--;
-	}
 }
 
 extern pthread_t

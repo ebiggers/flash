@@ -183,9 +183,16 @@ load_tab_delimited_pair(struct input_stream *in,
 		goto unexpected_eof;
 	if (ret > INT_MAX)
 		goto too_long;
-	if (r1->qual[ret - 1] != '\t')
-		goto expected_tab;
 	r1->qual_len = ret;
+
+	if (r1->qual[ret - 1] == '\n') {
+		/* Actually just a single read; use a void second read.  */
+		r2->tag_len = 0;
+		r2->seq_len = 0;
+		r2->qual_len = 0;
+		++*line_no_p;
+		return true;
+	}
 
 	ret = input_stream_getdelims(in, &r2->seq, &r2->seq_bufsz, delims);
 	if (ret <= 0)
@@ -308,6 +315,11 @@ load_read(struct input_stream *in, const struct read_format_params *iparams,
  * Similar to load_read(), but loads a pair of reads from the file instead.
  * This is only relevant (and must only be called) for file formats that store
  * both reads of the pair in the same sequential file.
+ *
+ * As a special case, this function may only fill in @r1, and set @r2->seq_len
+ * to 0, to indicate that the next record in the file was actually an unpaired
+ * read, not a read pair.  This is possible in formats for which
+ * read_format_supports_mixed_reads() returns true (e.g. tab-delimited).
  */
 bool
 load_read_pair(struct input_stream *in, const struct read_format_params *iparams,
