@@ -152,7 +152,10 @@ OPTIONS:
                           and --interleaved-output.
 
   --tab-delimited-input   Assume the input is in tab-delimited format
-                          rather than FASTQ, described below.
+                          rather than FASTQ, described below.  In this
+                          mode you should provide a single input file,
+                          each line of which contains a read pair.  Specify
+                          "-" to read from standard input.
 
   --tab-delimited-output  Write output in tab-delimited format (not FASTQ).
                           Each line will contain either a combined pair in the

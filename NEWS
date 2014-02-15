@@ -1,8 +1,9 @@
 Version 1.2.9-beta
 -------------------
 - Added supported for tab-delimited input and output.
-- FLASH now displays a line number if a problem with the input is detected.
+- FLASH now displays more informative error messages in some cases.
 - Reorganized some of the code so that it's easier to modify.
+- Reading the data from standard input now works correctly.
 
 Version 1.2.8
 -------------------

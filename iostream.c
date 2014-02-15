@@ -76,9 +76,15 @@ access_flags_string(int flags)
  *	writing => standard output
  */
 static int
-standard_fd(const char *mode)
+standard_fd_from_mode(const char *mode)
 {
 	return mode_is_writing(mode) ? STDOUT_FILENO : STDIN_FILENO;
+}
+
+static int
+standard_fd_from_flags(int flags)
+{
+	return flags_is_writing(flags) ? STDOUT_FILENO : STDIN_FILENO;
 }
 
 /* Like fopen(), but aborts on error.  */
@@ -110,7 +116,7 @@ xgzopen(const char *path, const char *mode)
 
 	errno = 0;
 	if (string_is_hyphen(path))
-		gzf = gzdopen(standard_fd(mode), mode);
+		gzf = gzdopen(standard_fd_from_mode(mode), mode);
 	else
 		gzf = gzopen(path, mode);
 
@@ -197,16 +203,23 @@ xgzwrite(void *_fp, const void *_buf, size_t count, const char *name)
 #  define O_BINARY 0
 #endif
 
-/* Opens the named file as a file descriptor, with error checking.
- * On Windows, O_BINARY is implied.  */
-static int
+/* Like open(), but aborts on error, and also interprets "-" as standard output
+ * or standard input rather than a path, depending on the requested mode.  Also
+ * automatically provides O_BINARY on Windows.  */
+static void *
 xopen(const char *path, int flags, mode_t mode)
 {
-	int fd = open(path, flags | O_BINARY, mode);
+	int fd;
+
+	if (string_is_hyphen(path))
+		fd = standard_fd_from_flags(flags);
+	else
+		fd = open(path, flags | O_BINARY, mode);
+
 	if (fd < 0)
 		fatal_error_with_errno("Failed to open \"%s\" for %s",
 				       path, access_flags_string(flags));
-	return fd;
+	return (void*)(intptr_t)fd;
 }
 
 /* Reads data from a file descriptor, with error checking.  Returns the number
@@ -310,7 +323,7 @@ input_gzfile_open(const char *path)
 static void *
 input_fd_open(const char *path)
 {
-	return (void*)(intptr_t)xopen(path, O_RDONLY, 0);
+	return xopen(path, O_RDONLY, 0);
 }
 
 struct input_stream {
@@ -354,6 +367,12 @@ static const struct input_stream_operations gzfile_input_stream_ops = {
 static const struct input_stream_operations *
 select_input_stream_ops(const char *path)
 {
+	/* XXX:  We can't rewind standard input after checking for magic bytes,
+	 * so for that case we rely on the fact that gzread returns the literal
+	 * data if the stream does not, in fact, contain gzipped data.  */
+	if (string_is_hyphen(path))
+		return &gzfile_input_stream_ops;
+
 	/* Test for gzip magic bytes { 0x1f, 0x8b}  */
 
 	unsigned char magic[2] = {0, 0};
@@ -378,6 +397,8 @@ struct input_stream *
 new_input_stream(const char *path)
 {
 	struct input_stream *in = xmalloc(sizeof(*in));
+
+	assert(path != NULL);
 
 	/* Select input_stream_operations and open stream  */
 	in->ops = select_input_stream_ops(path);
@@ -519,16 +540,8 @@ static void *
 output_fd_open(const char *path, const char *filter_prog,
 	       const char *filter_prog_args)
 {
-	int fd;
-
 	assert(filter_prog == NULL);
-
-	if (string_is_hyphen(path))
-		fd = STDOUT_FILENO;
-	else
-		fd = xopen(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-
-	return (void*)(intptr_t)fd;
+	return xopen(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 }
 
 static void *
@@ -654,6 +667,8 @@ new_output_stream(enum out_compression_type ctype,
 		  const char *filter_prog_args)
 {
 	struct output_stream *out = xmalloc(sizeof(*out));
+
+	assert(path != NULL);
 
 	/* Select output_stream_operations and open stream.  */
 	out->ops = select_output_stream_ops(ctype, filter_prog != NULL);

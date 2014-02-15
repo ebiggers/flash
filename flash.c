@@ -167,7 +167,10 @@ static void usage(void)
 "                          and --interleaved-output.\n"
 "\n"
 "  --tab-delimited-input   Assume the input is in tab-delimited format\n"
-"                          rather than FASTQ, described below.\n"
+"                          rather than FASTQ, described below.  In this\n"
+"                          mode you should provide a single input file,\n"
+"                          each line of which contains a read pair.  Specify\n"
+"                          \"-\" to read from standard input.\n"
 "\n"
 "  --tab-delimited-output  Write output in tab-delimited format (not FASTQ).\n"
 "                          Each line will contain either a combined pair in the\n"
@@ -889,13 +892,21 @@ int main(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
-	if ((interleaved_input && argc != 1) ||
-	    (!interleaved_input && iparams.fmt != READ_FORMAT_TAB_DELIMITED &&
-	     argc != 2))
-	{
+	if (argc == 0 || argc > 2) {
 		usage_short();
 		return 2;
 	}
+	if (interleaved_input && argc != 1)
+		fatal_error("With --interleaved-input, only 1 input "
+			    "file is allowed!");
+
+	if (interleaved_input && iparams.fmt != READ_FORMAT_FASTQ)
+		fatal_error("--interleaved-input is only relevant for FASTQ input!");
+
+	if (argc == 1 && !interleaved_input && iparams.fmt == READ_FORMAT_FASTQ)
+		fatal_error("Only 1 input file was specified!  Specify "
+			    "--interleaved-input\n\tif you're providing "
+			    "an interleaved FASTQ file.");
 
 	mates1_in = new_input_stream(argv[0]);
 	if (argc > 1)
