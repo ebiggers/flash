@@ -914,8 +914,12 @@ int main(int argc, char **argv)
 
 	if (argc == 1 && !interleaved_input && iparams.fmt == READ_FORMAT_FASTQ)
 		fatal_error("Only 1 input file was specified!  Specify "
-			    "--interleaved-input\n\tif you're providing "
-			    "an interleaved FASTQ file.");
+			    "--interleaved-input\n"
+			    "\tif you're providing an interleaved FASTQ file, "
+			    "or --tab-delimited-input\n"
+			    "\tif you're providing a tab-delimited input file.  "
+			    "Or specify two input\n"
+			    "\tfiles (for read 1 and read 2 of each pair).");
 
 	mates1_in = new_input_stream(argv[0]);
 	if (argc > 1)
