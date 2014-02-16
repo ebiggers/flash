@@ -195,6 +195,9 @@ load_tab_delimited_pair(struct input_stream *in,
 		return true;
 	}
 
+	/* Set tag of read 2 to be the same as the tag of read 1  */
+	copy_tag(r2, r1);
+
 	ret = input_stream_getdelims(in, &r2->seq, &r2->seq_bufsz, delims);
 	if (ret <= 0)
 		goto unexpected_eof;
