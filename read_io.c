@@ -110,6 +110,7 @@ load_tab_delimited_read(struct input_stream *in, struct read *r,
 		goto too_long;
 	if (r->tag[ret - 1] != '\t')
 		goto expected_tab;
+	r->tag_len = ret;
 
 	ret = input_stream_getdelims(in, &r->seq, &r->seq_bufsz, delims);
 	if (ret <= 0)
