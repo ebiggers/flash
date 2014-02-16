@@ -1,5 +1,5 @@
 /*
- * read_io.c: Utility functions for processing reads
+ * read_util.c: Utility functions for processing reads
  */
 
 /*
