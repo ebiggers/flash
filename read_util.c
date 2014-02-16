@@ -123,7 +123,7 @@ reverse_complement(struct read *r)
 static inline int
 trim(char *s, int len)
 {
-	while (len > 0 && isspace(s[len - 1]))
+	while (len > 0 && isspace((unsigned char)s[len - 1]))
 		s[--len] = '\0';
 	return len;
 }
@@ -151,7 +151,7 @@ clean_read(struct read *r, int phred_offset, struct input_stream *in,
 
 	seq = r->seq;
 	for (int i = 0; i < seq_len; i++) {
-		if (isspace(seq[i])) {
+		if (isspace((unsigned char)seq[i])) {
 			fatal_error("Invalid sequence string: "
 				    "contains whitespace "
 				    "(file \"%s\", near line %"PRIu64")",
