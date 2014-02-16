@@ -150,8 +150,15 @@ clean_read(struct read *r, int phred_offset, struct input_stream *in,
 	}
 
 	seq = r->seq;
-	for (int i = 0; i < seq_len; i++)
+	for (int i = 0; i < seq_len; i++) {
+		if (isspace(seq[i])) {
+			fatal_error("Invalid sequence string: "
+				    "contains whitespace "
+				    "(file \"%s\", near line %"PRIu64")",
+				    input_stream_get_name(in), line_no);
+		}
 		seq[i] = canonical_ascii_char(seq[i]);
+	}
 
 	qual = r->qual;
 
