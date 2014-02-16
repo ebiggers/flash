@@ -1,7 +1,6 @@
 #ifndef _FLASH_UTIL_H_
 #define _FLASH_UTIL_H_
 
-#include <ctype.h>
 #include <stddef.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -66,34 +65,6 @@ get_default_num_threads(void);
 
 extern void
 mkdir_p(const char *dir);
-
-/* Remove all whitespace from the end of the line/string.  Return the length of
- * the trimmed string. */
-static inline size_t
-trim(char *s, size_t len)
-{
-	while (len != 0 && isspace(s[len - 1]))
-		s[--len] = '\0';
-	return len;
-}
-
-/* Turns lowercase a, c, g, t into uppercase;
- * uppercase A, C, G, T stay the same;
- * everything else turns into 'N'.  */
-static inline char
-canonical_ascii_char(char c)
-{
-	extern const char canonical_ascii_tab[];
-	return canonical_ascii_tab[(unsigned char)c];
-}
-
-/* Complements a canonical ASCII base (A, C, G, T, N). */
-static inline char
-complement(char c)
-{
-	extern const char complement_tab[];
-	return complement_tab[(unsigned char)c];
-}
 
 extern pthread_t
 create_thread(void *(*proc)(void *), void *params);

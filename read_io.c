@@ -235,47 +235,6 @@ expected_newline:
 		    input_stream_get_name(in), *line_no_p);
 }
 
-static void
-clean_read(struct read *r, int phred_offset, struct input_stream *in,
-	   uint64_t line_no)
-{
-	int seq_len;
-	char *seq;
-	char *qual;
-
-	r->seq_len = trim(r->seq, r->seq_len);
-	r->tag_len = trim(r->tag, r->tag_len);
-	r->qual_len = trim(r->qual, r->qual_len);
-
-	seq_len = r->seq_len;
-
-	if (r->qual_len != seq_len) {
-		fatal_error("Qual string length (%d) not the same as sequence "
-			    "length (%d) (file \"%s\", near line %"PRIu64")",
-			    r->qual_len, seq_len,
-			    input_stream_get_name(in), line_no);
-	}
-
-	seq = r->seq;
-	for (int i = 0; i < seq_len; i++)
-		seq[i] = canonical_ascii_char(seq[i]);
-
-	qual = r->qual;
-
-	if (phred_offset > 0) {
-		for (int i = 0; i < seq_len; i++) {
-			if (qual[i] < phred_offset) {
-				fatal_error("Qual string contains character "
-					    "under phred_offset = %d "
-					    "(file \"%s\", near line %"PRIu64")",
-					    phred_offset,
-					    input_stream_get_name(in), line_no);
-			}
-			qual[i] -= phred_offset;
-		}
-	}
-}
-
 /*
  * Loads the next read from the stream @in.
  *
@@ -417,23 +376,6 @@ write_tab_delimited_pair(struct output_stream *out,
 	output_stream_fputc(out, '\n');
 }
 
-static void
-clean_read_for_write(struct read *r,
-		     const struct read_format_params *oparams)
-{
-
-	assert(r->seq_len == r->qual_len);
-
-	int phred_offset = oparams->phred_offset;
-
-	if (phred_offset > 0) {
-		char *qual = r->qual;
-		int qual_len = r->qual_len;
-		for (int i = 0; i < qual_len; i++)
-			qual[i] += phred_offset;
-	}
-}
-
 /* Writes a read to the specified output stream in the format specified by
  * @oparams.
  *
@@ -442,7 +384,7 @@ void
 write_read(struct output_stream *out, const struct read_format_params *oparams,
 	   struct read *r)
 {
-	clean_read_for_write(r, oparams);
+	clean_read_for_write(r, oparams->phred_offset);
 
 	switch (oparams->fmt) {
 	case READ_FORMAT_FASTQ:
@@ -465,8 +407,8 @@ write_read_pair(struct output_stream *out,
 		const struct read_format_params *oparams,
 		struct read *r1, struct read *r2)
 {
-	clean_read_for_write(r1, oparams);
-	clean_read_for_write(r2, oparams);
+	clean_read_for_write(r1, oparams->phred_offset);
+	clean_read_for_write(r2, oparams->phred_offset);
 
 	switch (oparams->fmt) {
 	case READ_FORMAT_FASTQ:

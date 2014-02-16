@@ -45,48 +45,6 @@
 #  include <windows.h>
 #endif
 
-/*
- * A table mapping ASCII characters (actually, 8-bit bytes) to "canonical" form
- * for base processing:
- *
- * a, A => A
- * c, C => C
- * g, G => G
- * t, T => T
- * everything else => N
- */
-const char canonical_ascii_tab[256] = {
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', /* A */ 'A', 'N', /* C */ 'C', 'N', 'N', 'N', /* G */ 'G',
-                'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', /* T */ 'T', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', /* a */ 'A', 'N', /* c */ 'C', 'N', 'N', 'N', /* g */ 'G',
-                'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', /* t */ 'T', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-        'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N', 'N',
-};
-
-/* A table mapping an ASCII base character in canonical form to its complement.
- * Unknown bases (N's) stay unknown.  */
-const char complement_tab[] = {
-	['A'] = 'T',
-	['C'] = 'G',
-	['G'] = 'C',
-	['T'] = 'A',
-	['N'] = 'N',
-};
-
-
 #ifdef __WIN32__
 static pthread_mutex_t infofile_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t stderr_lock = PTHREAD_MUTEX_INITIALIZER;

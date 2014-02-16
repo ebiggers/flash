@@ -9,7 +9,7 @@
 
 CFLAGS += -O2 -Wall -std=c99 -D_GNU_SOURCE -D_FILE_OFFSET_BITS=64
 LDLIBS := -lz -lpthread
-OBJ    := combine_reads.o flash.o iostream.o read_io.o read_queue.o util.o
+OBJ    := combine_reads.o flash.o iostream.o read_io.o read_queue.o read_util.o util.o
 EXE    := flash
 
 $(EXE):$(OBJ)

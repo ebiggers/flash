@@ -300,52 +300,6 @@ static const struct option longopts[] = {
 	{NULL, 0, NULL, 0}
 };
 
-
-static void copy_tag(struct read *to, const struct read *from)
-{
-	if (to->tag_bufsz < from->tag_len + 1) {
-		to->tag = xrealloc(to->tag, from->tag_len + 1);
-		to->tag_bufsz = from->tag_len + 1;
-	}
-	to->tag_len = from->tag_len;
-	memcpy(to->tag, from->tag, from->tag_len + 1);
-}
-
-/*
- * Given the FASTQ tags of two paired-end reads, find the FASTQ tag to give to
- * the combined read.
- *
- * This is done by stripping off the characters trailing the '/' (e.g. "/1" and
- * "/2"), unless there is a "barcode" beginning with the '#' character, which is
- * kept.
- */
-static void get_combined_tag(const struct read *read_1,
-			     const struct read *read_2,
-			     struct read *combined_read)
-{
-	char *p;
-	copy_tag(combined_read, read_1);
-	for (p = &combined_read->tag[combined_read->tag_len - 1];
-	     p >= combined_read->tag;
-	     p--)
-	{
-		if (*p == '/') {
-			/* Tags are different, and there's a forward slash in
-			 * the first tag.  Remove everything after the forward
-			 * slash, unless there's a barcode, which we keep. */
-			if (*(p + 1) != '\0' && *(p + 2) == '#') {
-				/* read ID has a barcode. */
-				do {
-					*p = *(p + 2);
-				} while (*(++p + 2) != '\0');
-			}
-			*p = '\0';
-			combined_read->tag_len = p - combined_read->tag;
-			break;
-		}
-	}
-}
-
 static char *
 input_format_str(char *buf, size_t bufsize,
 		 const struct read_format_params *iparams,
@@ -394,36 +348,6 @@ output_format_str(char *buf, size_t bufsize,
 		break;
 	}
 	return buf;
-}
-
-static inline char
-identity_mapping(char c)
-{
-	return c;
-}
-
-/* Reverse a sequence of @len chars, applying the mapping function @map_char to
- * each, including the middle char if @len is odd.  */
-static inline void
-reverse_with_mapping(char *p, size_t len, char (*map_char)(char))
-{
-	char tmp;
-	char *pp = p + len;
-	while (pp > p) {
-		--pp;
-		tmp = *p;
-		*p = (*map_char)(*pp);
-		*pp = (*map_char)(tmp);
-		++p;
-	}
-}
-
-/* Reverse-complement a read in place.  */
-static void
-reverse_complement(struct read *r)
-{
-	reverse_with_mapping(r->seq, r->seq_len, complement);
-	reverse_with_mapping(r->qual, r->seq_len, identity_mapping);
 }
 
 /* This is just a dynamic array used as a histogram.  It's needed to count the
