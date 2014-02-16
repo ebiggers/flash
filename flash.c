@@ -1069,8 +1069,10 @@ int main(int argc, char **argv)
 			info("    %s", output_stream_get_name(out_notcombined_1));
 		if (out_notcombined_2)
 			info("    %s", output_stream_get_name(out_notcombined_2));
-		info("    %s.hist", name_buf);
-		info("    %s.histogram", name_buf);
+		if (!to_stdout) {
+			info("    %s.hist", name_buf);
+			info("    %s.histogram", name_buf);
+		}
 		info(" ");
 		info("Parameters:");
 		info("    Min overlap:           %d",
