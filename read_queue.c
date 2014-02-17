@@ -54,20 +54,19 @@ free_read(struct read *r)
 	}
 }
 
-/* Allocate a new read set containing no reads.  */
-struct read_set *
-new_empty_read_set(void)
-{
-	return xzalloc(sizeof(struct read_set));
-	/* s->filled = 0  */
-}
-
 static struct read_set *
-new_full_read_set(void)
+new_read_set(size_t num_reads, bool full)
 {
-	struct read_set *s = xmalloc(sizeof(*s));
-	for (size_t i = 0; i < READS_PER_READ_SET; i++)
-		s->reads[i] = new_read();
+	struct read_set *s = xmalloc(sizeof(*s) + num_reads * sizeof(s->reads[0]));
+	if (full) {
+		for (size_t i = 0; i < num_reads; i++)
+			s->reads[i] = new_read();
+	} else {
+		for (size_t i = 0; i < num_reads; i++)
+			s->reads[i] = NULL;
+	}
+	s->filled = 0;
+	s->num_reads = num_reads;
 	return s;
 }
 
@@ -75,7 +74,7 @@ void
 free_read_set(struct read_set *s)
 {
 	if (s) {
-		for (size_t i = 0; i < READS_PER_READ_SET; i++)
+		for (size_t i = 0; i < s->num_reads; i++)
 			free_read(s->reads[i]);
 		xfree(s, sizeof(*s));
 	}
@@ -112,7 +111,7 @@ struct read_queue {
 };
 
 static struct read_queue *
-new_read_queue(size_t size, bool full)
+new_read_queue(size_t size, size_t reads_per_set, bool full)
 {
 	struct read_queue *q = xmalloc(sizeof(*q));
 
@@ -121,7 +120,7 @@ new_read_queue(size_t size, bool full)
 	q->front = 0;
 	if (full) {
 		for (size_t i = 0; i < size; i++)
-			q->read_sets[i] = new_full_read_set();
+			q->read_sets[i] = new_read_set(reads_per_set, true);
 		q->filled = size;
 	} else {
 		for (size_t i = 0; i < size; i++)
@@ -245,7 +244,7 @@ reader1_proc(void *_params)
 		s = read_queue_get(params->avail_read_q);
 
 		for (s->filled = 0;
-		     s->filled < READS_PER_READ_SET;
+		     s->filled < s->num_reads;
 		     s->filled++)
 		{
 			if (!load_read(params->in, params->iparams,
@@ -305,7 +304,7 @@ reader2_proc(void *_params)
 			/* Read pair.  */
 			++s_read1->filled;
 			++s_read2->filled;
-			if (s_read1->filled == READS_PER_READ_SET) {
+			if (s_read1->filled == s_read1->num_reads) {
 				read_queue_put(params->unprocessed_read_1_q, s_read1);
 				read_queue_put(params->unprocessed_read_2_q, s_read2);
 				s_read1 = read_queue_get(params->avail_read_q);
@@ -322,7 +321,7 @@ reader2_proc(void *_params)
 				s_unpaired->reads[s_unpaired->filled];
 			s_unpaired->reads[s_unpaired->filled] = r;
 			++s_unpaired->filled;
-			if (s_unpaired->filled == READS_PER_READ_SET) {
+			if (s_unpaired->filled == s_unpaired->num_reads) {
 				s_unpaired->type = READS_UNPAIRED;
 				read_queue_put(params->unpaired_read_q, s_unpaired);
 				s_unpaired = read_queue_get(params->avail_read_q);
@@ -603,6 +602,13 @@ notify_combiner_terminated(struct read_io_handle *h)
 	pthread_mutex_unlock(&h->combiner_threads_remaining_mutex);
 }
 
+struct read_set *
+new_empty_read_set(struct read_io_handle *h)
+{
+	return new_read_set(BASE_READS_PER_READ_SET +
+			    (h->combiner_threads_remaining * PERTHREAD_READS_PER_READ_SET),
+			    false);
+}
 
 /* Starts the FLASH I/O layer, which is responsible for input/output of reads.
  *
@@ -635,12 +641,14 @@ start_readers_and_writers(struct input_stream *in_1,
 
 	struct read_io_handle *h = xzalloc(sizeof(*h));
 
+	size_t reads_per_set = BASE_READS_PER_READ_SET +
+				(num_combiner_threads * PERTHREAD_READS_PER_READ_SET);
 	size_t queue_size = num_combiner_threads * QUEUE_SIZE_PER_THREAD;
 
-	h->avail_read_q = new_read_queue(queue_size * 3, true);
-	h->unprocessed_read_1_q = new_read_queue(queue_size, false);
-	h->unprocessed_read_2_q = new_read_queue(queue_size, false);
-	h->combined_read_q = new_read_queue(queue_size, false);
+	h->avail_read_q = new_read_queue(queue_size * 3, reads_per_set, true);
+	h->unprocessed_read_1_q = new_read_queue(queue_size, reads_per_set, false);
+	h->unprocessed_read_2_q = new_read_queue(queue_size, reads_per_set, false);
+	h->combined_read_q = new_read_queue(queue_size, reads_per_set, false);
 
 	init_mutex(&h->get_unprocessed_pair_mutex);
 	init_mutex(&h->put_uncombined_pair_mutex);
@@ -655,8 +663,8 @@ start_readers_and_writers(struct input_stream *in_1,
 		 * read 1 of uncombined pairs, and one for read 2 of uncombined
 		 * pairs.  */
 
-		h->uncombined_read_1_q = new_read_queue(queue_size, false);
-		h->uncombined_read_2_q = new_read_queue(queue_size, false);
+		h->uncombined_read_1_q = new_read_queue(queue_size, reads_per_set, false);
+		h->uncombined_read_2_q = new_read_queue(queue_size, reads_per_set, false);
 
 		h->writer_1 = start_writer1(out_combined, oparams,
 					    h->combined_read_q,
@@ -676,8 +684,8 @@ start_readers_and_writers(struct input_stream *in_1,
 		/* 2 output files specified: one for combined reads and one for
 		 * uncombined pairs.  */
 
-		h->uncombined_read_1_q = new_read_queue(queue_size, false);
-		h->uncombined_read_2_q = new_read_queue(queue_size, false);
+		h->uncombined_read_1_q = new_read_queue(queue_size, reads_per_set, false);
+		h->uncombined_read_2_q = new_read_queue(queue_size, reads_per_set, false);
 
 		h->writer_1 = start_writer1(out_combined, oparams,
 					    h->combined_read_q,
@@ -695,7 +703,7 @@ start_readers_and_writers(struct input_stream *in_1,
 
 		if (read_format_supports_mixed_reads(oparams)) {
 			h->uncombined_read_1_q = h->combined_read_q;
-			h->uncombined_read_2_q = new_read_queue(queue_size, false);
+			h->uncombined_read_2_q = new_read_queue(queue_size, reads_per_set, false);
 
 			h->writer_1 = start_writer2(out_combined, oparams,
 						    h->combined_read_q,

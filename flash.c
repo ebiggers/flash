@@ -560,10 +560,10 @@ static void *combiner_thread_proc(void *_params)
 	struct read_io_handle *iohandle = params->common->iohandle;
 	const struct combine_params *alg_params = &params->common->alg_params;
 
-	struct read_set *s_avail_1 = new_empty_read_set();
-	struct read_set *s_avail_2 = new_empty_read_set();
-	struct read_set *s_uncombined_1 = new_empty_read_set();
-	struct read_set *s_uncombined_2 = new_empty_read_set();
+	struct read_set *s_avail_1 = new_empty_read_set(iohandle);
+	struct read_set *s_avail_2 = new_empty_read_set(iohandle);
+	struct read_set *s_uncombined_1 = new_empty_read_set(iohandle);
+	struct read_set *s_uncombined_2 = new_empty_read_set(iohandle);
 	struct read_set *s_combined = get_avail_read_set(iohandle);
 	struct empty_sets empty = {};
 
@@ -596,7 +596,7 @@ static void *combiner_thread_proc(void *_params)
 				/* Uncombined read structures are unneeded; mark
 				 * them as available.  */
 
-				if (s_avail_1->filled == READS_PER_READ_SET) {
+				if (s_avail_1->filled == s_avail_1->num_reads) {
 					put_avail_read_pairs(iohandle,
 							     s_avail_1,
 							     s_avail_2);
@@ -615,7 +615,7 @@ static void *combiner_thread_proc(void *_params)
 				get_combined_tag(r1, r2, r_combined);
 
 				/* Send combined read.  */
-				if (++s_combined->filled == READS_PER_READ_SET) {
+				if (++s_combined->filled == s_combined->num_reads) {
 					put_combined_reads(iohandle, s_combined);
 					s_combined = get_avail_read_set(iohandle);
 				}
@@ -625,7 +625,7 @@ static void *combiner_thread_proc(void *_params)
 				hist_inc(combined_read_len_hist, 0);
 
 				/* Send uncombined reads.  */
-				if (s_uncombined_1->filled == READS_PER_READ_SET) {
+				if (s_uncombined_1->filled == s_uncombined_1->num_reads) {
 					put_uncombined_read_pairs(iohandle,
 								  s_uncombined_1,
 								  s_uncombined_2);

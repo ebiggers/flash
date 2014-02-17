@@ -8,14 +8,20 @@ struct read_format_params;
 struct input_stream;
 struct output_stream;
 
-/* Number of reads per read set (i.e. per chunk processed by combiner threads).
- * This number must be at least 1; it is a heuristic value that affects
- * performance only.  The faster the core algorithm runs, the higher it should
- * be.  */
+/* BASE_READS_PER_READ_SET: The base number of reads per read set (i.e. per
+ * chunk processed by combiner threads).  This number must be at least 1; it is
+ * a heuristic value that affects performance only.  The faster the core
+ * algorithm runs, the higher it should be.
+ *
+ * PERTHREAD_READS_PER_READ_SET:  Additional number of reads per read set per
+ * combiner thread.
+ */
 #if defined(__GNUC__) && defined(__SSE2__)
-#  define READS_PER_READ_SET 48
+#  define BASE_READS_PER_READ_SET 30
+#  define PERTHREAD_READS_PER_READ_SET 5
 #else
-#  define READS_PER_READ_SET 32
+#  define BASE_READS_PER_READ_SET 24
+#  define PERTHREAD_READS_PER_READ_SET 4
 #endif
 
 /* NUmber of read sets to allocate per combiner thread.  Must be at least 6.  */
@@ -24,13 +30,14 @@ struct output_stream;
 struct read_io_handle;
 
 struct read_set {
-	struct read *reads[READS_PER_READ_SET];
-	size_t filled;
+	unsigned filled;
+	unsigned num_reads;
 	enum {
 		READS_UNCOMBINED,
 		READS_COMBINED,
 		READS_UNPAIRED,
 	} type;
+	struct read *reads[];
 };
 
 extern struct read_io_handle *
@@ -66,7 +73,7 @@ extern void
 notify_combiner_terminated(struct read_io_handle *h);
 
 extern struct read_set *
-new_empty_read_set(void);
+new_empty_read_set(struct read_io_handle *h);
 
 extern void
 free_read_set(struct read_set *s);
