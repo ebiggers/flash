@@ -28,83 +28,231 @@
 #include "read.h"
 #include "util.h"
 
+#include <assert.h>
 #include <stdlib.h>
+#include <string.h>
+
+#if defined(__GNUC__) && defined(__SSE2__)
+#  define WITH_SSE2
+#endif
+
+#ifdef WITH_SSE2
+#  include <xmmintrin.h>
+#  include <emmintrin.h>
+#endif
+
+#ifdef WITH_SSE2
+
+/* Sum the values an 8 x 8 bit vector and return a 32-bit result.  */
+static inline uint32_t
+hsum32_v8(__m128i v)
+{
+	v = _mm_sad_epu8(v, _mm_set1_epi8(0));
+	return (uint32_t)_mm_extract_epi16(v, 0) +
+	       (uint32_t)_mm_extract_epi16(v, 4);
+}
+
+/* Sum the values an 8 x 16 bit vector and return a 32-bit result.  */
+static inline uint32_t
+hsum32_v16(__m128i v)
+{
+	__m128i mask = _mm_set1_epi32(0x0000ffff);
+	v = _mm_add_epi32(v & mask, _mm_srli_si128(v, 2) & mask);
+	v = _mm_add_epi32(v, _mm_srli_si128(v, 4));
+	v = _mm_add_epi32(v, _mm_srli_si128(v, 8));
+	return _mm_cvtsi128_si32(v);
+}
+
+#endif /* WITH_SSE2 */
 
 /*
- * Align the beginning of the DNA sequence @seq_1 to the beginning of the DNA
- * sequence @seq_2, both in the same orientation, where @seq_2 is at least as
- * long as @seq_1, and @overlap_len is the length of @seq_1 and therefore the
- * length of the overlap in the attempted alignment.
+ * Compute mismatch statistics between two sequences.
  *
- * In the output paramater @mismatch_density_ret, return the density of base
- * pair mismatches in the overlapped region.  In the output parameter
- * @qual_score_ret, return the average of the quality scores of all mismatches
- * in the overlapped region.
- *
- * The maximum overlap length considered in the scoring is @max_overlap, while
- * the minimum is @min_overlap.
+ * @seq_1, @seq_2:
+ *	The two sequences to compare (ASCII characters A, C, G, T, N).
+ * @qual_1, @qual_2:
+ *	Quality scores for the two sequences, based at 0.
+ * @haveN
+ *	As an optimization, this can be set to %false to indicate that neither
+ *	sequence contains an uncalled base (represented as an N character).
+ * @len_p
+ *	Pointer to the length of the sequence.  This value will be updated to
+ *	subtract the number of positions at which an uncalled base (N) exists in
+ *	either sequence.
+ * @num_mismatches_ret
+ *	Location into which to return the number of positions at which the bases
+ *	were mismatched.
+ * @mismatch_qual_total_ret
+ *	Location into which to return the sum of lesser quality scores at
+ *	mismatch sites.
  */
-static void
-align_position(const char * restrict seq_1,
-	       const char * restrict seq_2,
-	       const char * restrict qual_1,
-	       const char * restrict qual_2,
-	       int overlap_len,
-	       int min_overlap,
-	       int max_overlap,
-	       float *mismatch_density_ret,
-	       float *qual_score_ret)
+static inline void
+compute_mismatch_stats(const char * restrict seq_1,
+		       const char * restrict seq_2,
+		       const char * restrict qual_1,
+		       const char * restrict qual_2,
+		       bool haveN,
+		       int * restrict len_p,
+		       unsigned * restrict num_mismatches_ret,
+		       unsigned * restrict mismatch_qual_total_ret)
 {
-	int num_non_dna_chars = 0;
-	int num_mismatches = 0;
-	int mismatch_qual_total = 0;
+	int num_uncalled = 0;
+	unsigned num_mismatches = 0;
+	unsigned mismatch_qual_total = 0;
+	int len = *len_p;
 
-	/* Calculate the number of mismatches, the number of 'N' characters, and
-	 * the sum of the minimum quality values in the mismatched bases over
-	 * the overlap region. */
-	for (int i = 0; i < overlap_len; i++) {
-		if (seq_1[i] == 'N' || seq_2[i] == 'N') {
-			num_non_dna_chars++;
-		} else {
+	if (haveN) {
+		for (int i = 0; i < len; i++) {
+			if (seq_1[i] == 'N' || seq_2[i] == 'N') {
+				num_uncalled++;
+			} else {
+				if (seq_1[i] != seq_2[i])  {
+					num_mismatches++;
+					mismatch_qual_total += min(qual_1[i], qual_2[i]);
+				}
+			}
+		}
+	} else {
+		/* This part of the 'if' statement is for optimization purposes
+		 * only; its behavior is equivalent to the block above, except
+		 * this block assumes there are no N characters in the input,
+		 * and therefore no further checks for N's are needed.
+		 *
+		 * Note: this optimization is only useful if most reads don't
+		 * contain N characters.  */
+
+	#ifdef WITH_SSE2
+
+		/* Optional vectorized implementation (about twice as fast as
+		 * nonvectorized on x86_64).  */
+
+		while (len >= 16) {
+
+			/* 16 x 8 bit counters for number of mismatches  */
+			__m128i num_mismatches_v8 = _mm_set1_epi8(0);
+
+			/* 8 x 16 bit counters for mismatch quality total  */
+			__m128i mismatch_qual_total_v16 = _mm_set1_epi16(0);
+
+			/* The counters of num_mismatches_v8 will overflow if
+			 * 256 mismatches are detected at the same position
+			 * modulo 16 bytes.  So, don't process 4096 or more
+			 * bytes before reducing the counters.
+			 *
+			 * mismatch_qual_total_v16 would overflow even faster,
+			 * but we use 16-bit counters for it.  */
+
+			int todo = min(len, 255 * 16) & ~0xf;
+			len -= todo;
+
+			do {
+
+				/* Load 16 bases  */
+				__m128i s1_v8 = _mm_loadu_si128((const void *)seq_1);
+				__m128i s2_v8 = _mm_loadu_si128((const void *)seq_2);
+
+				/* Load 16 quality scores  */
+				__m128i q1_v8 = _mm_loadu_si128((const void *)qual_1);
+				__m128i q2_v8 = _mm_loadu_si128((const void *)qual_2);
+
+				/* Compare bases with each other and negate the
+				 * result.  This will produce 0xff in bytes
+				 * where the bases differ and 0x00 in bytes
+				 * where the bases were the same.  */
+				__m128i cmpresult = ~_mm_cmpeq_epi8(s1_v8, s2_v8);
+
+				/* Tally mismatched bases.  Subtracting 0x00 and
+				 * 0xff is equivalent to adding 0 and 1,
+				 * respectively.  */
+				num_mismatches_v8 = _mm_sub_epi8(num_mismatches_v8,
+								 cmpresult);
+
+				/* Tally quality scores for mismatched bases.
+				 */
+
+				/* Get minimum of each quality score.  */
+				__m128i qmin_v8 = _mm_min_epu8(q1_v8, q2_v8);
+
+				/* Select only quality scores at mismatch sites
+				 */
+				__m128i qadd_v8 = qmin_v8 & cmpresult;
+
+				/* Double the precision (8 => 16 bits) and tally  */
+				__m128i qadd_v16_1 = _mm_unpacklo_epi8(qadd_v8,
+								       _mm_set1_epi8(0));
+
+				__m128i qadd_v16_2 = _mm_unpackhi_epi8(qadd_v8,
+								       _mm_set1_epi8(0));
+
+				mismatch_qual_total_v16 = _mm_add_epi16(mismatch_qual_total_v16,
+									qadd_v16_1);
+
+				mismatch_qual_total_v16 = _mm_add_epi16(mismatch_qual_total_v16,
+									qadd_v16_2);
+
+				/* Advance pointers  */
+				seq_1 += 16, seq_2 += 16;
+				qual_1 += 16, qual_2 += 16;
+				todo -= 16;
+			} while (todo);
+
+			/* Reduce the counters.  */
+			num_mismatches += hsum32_v8(num_mismatches_v8);
+			mismatch_qual_total += hsum32_v16(mismatch_qual_total_v16);
+		}
+
+	#endif /* WITH_SSE2  */
+
+	#if 0
+		/* Verify the values computed by the vectorized implementation.
+		 */
+		{
+			int veclen = *len_p & ~0xf;
+			const char *_seq_1 = seq_1 - veclen;
+			const char *_seq_2 = seq_2 - veclen;
+			const char *_qual_1 = qual_1 - veclen;
+			const char *_qual_2 = qual_2 - veclen;
+			unsigned _num_mismatches = 0;
+			unsigned _mismatch_qual_total = 0;
+			for (int i = 0; i < veclen; i++) {
+				if (_seq_1[i] != _seq_2[i])  {
+					_num_mismatches++;
+					_mismatch_qual_total += min(_qual_1[i], _qual_2[i]);
+				}
+			}
+			assert(num_mismatches == _num_mismatches);
+			assert(mismatch_qual_total == _mismatch_qual_total);
+		}
+	#endif
+
+		/* Process any remainder that wasn't processed by the vectorized
+		 * implementation.  */
+		for (int i = 0; i < len; i++) {
 			if (seq_1[i] != seq_2[i])  {
 				num_mismatches++;
-				mismatch_qual_total += min(qual_1[i],
-							   qual_2[i]);
+				mismatch_qual_total += min(qual_1[i], qual_2[i]);
 			}
 		}
 	}
 
-	/* Reduce the length of overlap by the number of N's. */
-	overlap_len -= num_non_dna_chars;
-
-	/* Set the qual_score and mismatch_density.  qual_score is for
-	 * mismatches only, so lower qual_score is preferable since lower
-	 * qual_score means less confidence in base calls at mismatches. */
-	if (overlap_len > max_overlap) {
-		*qual_score_ret = (float)mismatch_qual_total / max_overlap;
-		*mismatch_density_ret = (float)num_mismatches / max_overlap;
-	} else  {
-		if (overlap_len >= min_overlap) {
-			*qual_score_ret = (float)mismatch_qual_total / overlap_len;
-			*mismatch_density_ret = (float)num_mismatches / overlap_len;
-		} else {
-			*qual_score_ret = 0.0f;
-			*mismatch_density_ret = 10000.0f;
-		}
-	}
+	/* Return results in pointer arguments  */
+	*num_mismatches_ret = num_mismatches;
+	*mismatch_qual_total_ret = mismatch_qual_total;
+	*len_p -= num_uncalled;
 }
-
 
 /*
  * Return the position of the first overlapping character in the first read
  * (0-based) of the best overlap between two reads, or -1 if the best overlap
  * does not satisfy the required threshold.
  */
-static int
+static inline int
 pair_align(const struct read *read_1, const struct read *read_2,
-	   int min_overlap, int max_overlap,
-	   float max_mismatch_density)
+	   int min_overlap, int max_overlap, float max_mismatch_density)
 {
+	bool haveN = memchr(read_1->seq, 'N', read_1->seq_len) ||
+		     memchr(read_2->seq, 'N', read_2->seq_len);
+
 	/* Best (smallest) mismatch density that has been found so far in an
 	 * overlap. */
 	float best_mismatch_density = max_mismatch_density + 1.0f;
@@ -117,33 +265,39 @@ pair_align(const struct read *read_1, const struct read *read_2,
 	int start = max(0, read_1->seq_len - read_2->seq_len);
 	int end = read_1->seq_len - min_overlap + 1;
 	for (int i = start; i < end; i++) {
-		float mismatch_density;
-		float qual_score;
+		unsigned num_mismatches;
+		unsigned mismatch_qual_total;
+		int overlap_len = read_1->seq_len - i;
 
-		align_position(read_1->seq + i,
-			       read_2->seq,
-			       read_1->qual + i,
-			       read_2->qual,
-			       read_1->seq_len - i,
-			       min_overlap, max_overlap,
-			       &mismatch_density, &qual_score);
+		compute_mismatch_stats(read_1->seq + i,
+				       read_2->seq,
+				       read_1->qual + i,
+				       read_2->qual,
+				       haveN,
+				       &overlap_len,
+				       &num_mismatches,
+				       &mismatch_qual_total);
 
-		if (mismatch_density < best_mismatch_density) {
-			best_qual_score       = qual_score;
-			best_mismatch_density = mismatch_density;
-			best_position         = i;
-		} else if (mismatch_density == best_mismatch_density) {
-			if (qual_score < best_qual_score) {
-				best_qual_score = qual_score;
-				best_position = i;
+		if (overlap_len >= min_overlap) {
+			float score_len = (float)min(overlap_len, max_overlap);
+			float qual_score = mismatch_qual_total / score_len;
+			float mismatch_density = num_mismatches / score_len;
+
+			if (mismatch_density <= best_mismatch_density &&
+			    (mismatch_density < best_mismatch_density ||
+			     qual_score < best_qual_score))
+			{
+				best_qual_score       = qual_score;
+				best_mismatch_density = mismatch_density;
+				best_position         = i;
 			}
 		}
 	}
 
 	if (best_mismatch_density > max_mismatch_density)
 		return -1;
-	else
-		return best_position;
+
+	return best_position;
 }
 
 /* This is the entry point for the core algorithm of FLASH.  The following
