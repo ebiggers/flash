@@ -8,7 +8,17 @@ struct read_format_params;
 struct input_stream;
 struct output_stream;
 
-#define READS_PER_READ_SET 32
+/* Number of reads per read set (i.e. per chunk processed by combiner threads).
+ * This number must be at least 1; it is a heuristic value that affects
+ * performance only.  The faster the core algorithm runs, the higher it should
+ * be.  */
+#if defined(__GNUC__) && defined(__SSE2__)
+#  define READS_PER_READ_SET 48
+#else
+#  define READS_PER_READ_SET 32
+#endif
+
+/* NUmber of read sets to allocate per combiner thread.  Must be at least 6.  */
 #define QUEUE_SIZE_PER_THREAD 8
 
 struct read_io_handle;
