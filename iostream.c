@@ -70,17 +70,17 @@ access_flags_string(int flags)
 	return flags_is_writing(flags) ? "writing" : "reading";
 }
 
-/* Returns a standard file descriptor depending on the mode:
+static int
+mode_to_flags(const char *mode)
+{
+	return mode_is_writing(mode) ? O_WRONLY | O_TRUNC | O_CREAT : O_RDONLY;
+}
+
+/* Returns a standard file descriptor depending on the flags:
  *
  *	reading => standard input
  *	writing => standard output
  */
-static int
-standard_fd_from_mode(const char *mode)
-{
-	return mode_is_writing(mode) ? STDOUT_FILENO : STDIN_FILENO;
-}
-
 static int
 standard_fd_from_flags(int flags)
 {
@@ -106,6 +106,37 @@ xfclose(FILE *fp, const char *name)
 		fatal_error_with_errno("Error closing \"%s\"", name);
 }
 
+#ifndef O_BINARY
+#  define O_BINARY 0
+#endif
+
+/* Like open(), but aborts on error, and also interprets "-" as standard output
+ * or standard input rather than a path, depending on the requested mode.  Also
+ * automatically provides O_BINARY on Windows.  */
+static void *
+xopen(const char *path, int flags, mode_t mode)
+{
+	int fd;
+
+	if (string_is_hyphen(path))
+		fd = standard_fd_from_flags(flags);
+	else
+		fd = open(path, flags | O_BINARY, mode);
+
+	if (fd < 0)
+		fatal_error_with_errno("Failed to open \"%s\" for %s",
+				       path, access_flags_string(flags));
+
+	/* XXX: autodetect whether posix_fadvise() is available or not.  */
+#ifdef __linux__
+	/* Advice the operating system that the file will be read or written
+	 * sequentially.  */
+	posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+#endif
+
+	return (void*)(intptr_t)fd;
+}
+
 /* Like gzopen(), but aborts on error, and also interprets "-" as standard
  * output or standard input rather than a path, depending on the requested mode.
  */
@@ -113,13 +144,11 @@ static void *
 xgzopen(const char *path, const char *mode)
 {
 	gzFile gzf;
+	int fd;
 
+	fd = (int)(intptr_t)xopen(path, mode_to_flags(mode), 0644);
 	errno = 0;
-	if (string_is_hyphen(path))
-		gzf = gzdopen(standard_fd_from_mode(mode), mode);
-	else
-		gzf = gzopen(path, mode);
-
+	gzf = gzdopen(fd, mode);
 	if (!gzf)
 		fatal_error_with_errno("Failed to open \"%s\" for %s",
 				       path, access_mode_string(mode));
@@ -197,29 +226,6 @@ xgzwrite(void *_fp, const void *_buf, size_t count, const char *name)
 		ptr += ret;
 		count -= ret;
 	}
-}
-
-#ifndef O_BINARY
-#  define O_BINARY 0
-#endif
-
-/* Like open(), but aborts on error, and also interprets "-" as standard output
- * or standard input rather than a path, depending on the requested mode.  Also
- * automatically provides O_BINARY on Windows.  */
-static void *
-xopen(const char *path, int flags, mode_t mode)
-{
-	int fd;
-
-	if (string_is_hyphen(path))
-		fd = standard_fd_from_flags(flags);
-	else
-		fd = open(path, flags | O_BINARY, mode);
-
-	if (fd < 0)
-		fatal_error_with_errno("Failed to open \"%s\" for %s",
-				       path, access_flags_string(flags));
-	return (void*)(intptr_t)fd;
 }
 
 /* Reads data from a file descriptor, with error checking.  Returns the number
