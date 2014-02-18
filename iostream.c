@@ -118,10 +118,14 @@ xopen(const char *path, int flags, mode_t mode)
 {
 	int fd;
 
-	if (string_is_hyphen(path))
+	if (string_is_hyphen(path)) {
 		fd = standard_fd_from_flags(flags);
-	else
+	#ifdef __WIN32__
+		_setmode(fd, O_BINARY);
+	#endif
+	} else {
 		fd = open(path, flags | O_BINARY, mode);
+	}
 
 	if (fd < 0)
 		fatal_error_with_errno("Failed to open \"%s\" for %s",
