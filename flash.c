@@ -44,7 +44,7 @@
 #include "read_queue.h"
 #include "util.h"
 
-#define VERSION_STR "v1.2.9-beta"
+#define VERSION_STR "v1.2.9"
 
 #ifdef __WIN32__
 #  define PAGER "more"

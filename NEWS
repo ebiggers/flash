@@ -1,4 +1,4 @@
-Version 1.2.9-beta
+Version 1.2.9
 -------------------
 - The core algorithm of FLASH has been optimized using SSE and SSE2
   instructions.  On x86_64 CPUs it now can run over twice as fast.
