@@ -69,7 +69,7 @@ of vector instructions available on modern x86 CPUs.  Consequently, FLASH works
 quite fast, even with low-cost computing resources.  As an example, we ran FLASH
 v1.2.9 on a laptop with a dual-core 2.3 GHz AMD x86_64 processor and it
 processed one million 101-bp read pairs in 11.6 seconds with the default
-parameters.  Less than 1 MB of memory was used.  Actual timing results will
+parameters.  Less than 2 MB of memory was used.  Actual timing results will
 vary, but they will depend primarily on the number of CPUs available, the speed
 of each CPU, and on the I/O speed of reading the input files and writing the
 output files.  FLASH is designed to be scalable to dozens of processors,
