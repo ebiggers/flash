@@ -133,7 +133,7 @@ xopen(const char *path, int flags, mode_t mode)
 
 	/* XXX: autodetect whether posix_fadvise() is available or not.  */
 #ifdef __linux__
-	/* Advice the operating system that the file will be read or written
+	/* Advise the operating system that the file will be read or written
 	 * sequentially.  */
 	posix_fadvise(fd, 0, 0, POSIX_FADV_SEQUENTIAL);
 #endif
