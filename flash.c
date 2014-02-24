@@ -35,6 +35,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 #include "combine_reads.h"
 #include "iostream.h"
@@ -45,45 +46,90 @@
 
 #define VERSION_STR "v1.2.9-beta"
 
-static void usage(void)
+#ifdef __WIN32__
+#  define PAGER "more"
+#else
+#  define PAGER "less"
+#endif
+
+static void usage(const char *argv0)
 {
 	const char *usage_str =
 "Usage: flash [OPTIONS] MATES_1.FASTQ MATES_2.FASTQ\n"
+"       flash [OPTIONS] --interleaved-input (MATES.FASTQ | -)\n"
+"       flash [OPTIONS] --tab-delimited-input (MATES.TAB | -)\n"
 "\n"
-"DESCRIPTION:\n"
+"----------------------------------------------------------------------------\n"
+"                                 DESCRIPTION                                \n"
+"----------------------------------------------------------------------------\n"
 "\n"
 "FLASH (Fast Length Adjustment of SHort reads) is an accurate and fast tool\n"
 "to merge paired-end reads that were generated from DNA fragments whose\n"
 "lengths are shorter than twice the length of reads.  Merged read pairs result\n"
-"in unpaired longer reads.  Longer reads are generally more desired in genome\n"
+"in unpaired longer reads, which are generally more desired in genome\n"
 "assembly and genome analysis processes.\n"
 "\n"
-"FLASH cannot merge paired-end reads that do not overlap.  It also cannot merge\n"
-"jumping read pairs that have an outward orientation (but these reads tend not\n"
-"to overlap anyway).  FLASH also is not designed for data that has a\n"
-"significant portion of indel errors (such as Sanger sequencing data).\n"
+"Briefly, the FLASH algorithm considers all possible overlaps at or above a\n"
+"minimum length between the reads in a pair and chooses the overlap that\n"
+"results in the lowest mismatch density (proportion of mismatched bases in\n"
+"the overlapped region).  Ties between multiple overlaps are broken by\n"
+"considering quality scores at mismatch sites.  When building the merged\n"
+"sequence, FLASH computes a consensus sequence in the overlapped region.\n"
+"More details can be found in the original publication\n"
+"(http://bioinformatics.oxfordjournals.org/content/27/21/2957.full).\n"
 "\n"
-"MANDATORY INPUT:\n"
+"Limitations of FLASH include:\n"
+"   - FLASH cannot merge paired-end reads that do not overlap.\n"
+"   - FLASH cannot merge read pairs that have an outward orientation, either\n"
+"     due to being \"jumping\" reads or due to excessive trimming.\n"
+"   - FLASH is not designed for data that has a significant amount of indel\n"
+"     errors (such as Sanger sequencing data).  It is best suited for Illumina\n"
+"     data.\n"
 "\n"
-"To run FLASH, you may provide two FASTQ files of paired-end reads\n"
-"where corresponding paired reads are in the same order in both files.\n"
+"----------------------------------------------------------------------------\n"
+"                               MANDATORY INPUT\n"
+"----------------------------------------------------------------------------\n"
+"\n"
+"The most common input to FLASH is two FASTQ files containing read 1 and read 2\n"
+"of each mate pair, respectively, in the same order.\n"
+"\n"
 "Alternatively, you may provide one FASTQ file, which may be standard input,\n"
-"containing interleaved paired-end reads (see the --interleaved option).\n"
-"The input FASTQ files may be either plain-text or compressed with gzip.\n"
-"Other compression formats for the input files are not yet supported.\n"
+"containing paired-end reads in either interleaved FASTQ (see the\n"
+"--interleaved-input option) or tab-delimited (see the --tab-delimited-input\n"
+"option) format.  In all cases, gzip compressed input is autodetected.  Also,\n"
+"in all cases, the PHRED offset is, by default, assumed to be 33; use the\n"
+"--phred-offset option to change it.\n"
 "\n"
-"OUTPUT:\n"
+"----------------------------------------------------------------------------\n"
+"                                   OUTPUT\n"
+"----------------------------------------------------------------------------\n"
 "\n"
-"The default output of FLASH is a FASTQ file containing the extended fragments\n"
-"produced by combining read pairs, two FASTQ files containing read pairs\n"
-"that were not combined, and histogram files that show the distribution of\n"
-"lengths of the extended fragments.  Writing the uncombined read pairs to an\n"
-"interleaved FASTQ file is also supported.  Also, writing the extended\n"
-"fragments directly to standard output is supported.  Plain-text and gzip\n"
-"output formats are natively supported; other compression formats are\n"
-"supported indirectly via the --compress-prog option.\n"
+"The default output of FLASH consists of the following files:\n"
 "\n"
-"OPTIONS:\n"
+"   - out.extendedFrags.fastq      The merged reads.\n"
+"   - out.notCombined_1.fastq      Read 1 of mate pairs that were not merged.\n"
+"   - out.notCombined_2.fastq      Read 2 of mate pairs that were not merged.\n"
+"   - out.hist                     Numeric histogram of merged read lengths.\n"
+"   - out.histogram                Visual histogram of merged read lengths.\n"
+"\n"
+"FLASH also logs informational messages to standard output.  These can be\n"
+"redirected to a file, as in the following example:\n"
+"\n"
+"  $ flash reads_1.fq reads_2.fq | tee flash.log\n"
+"\n"
+"In addition, FLASH supports several features affecting the output:\n"
+"\n"
+"   - Writing the merged reads directly to standard output (--to-stdout)\n"
+"   - Writing gzip compressed output files (-z) or using an external\n"
+"     compression program (--compress-prog)\n"
+"   - Writing the uncombined read pairs in interleaved FASTQ format\n"
+"     (--interleaved-output)\n"
+"   - Writing all output reads to a single file in tab-delimited format\n"
+"     (--tab-delimited-output)\n"
+"\n"
+"----------------------------------------------------------------------------\n"
+"                                   OPTIONS\n"
+"----------------------------------------------------------------------------\n"
 "\n"
 "  -m, --min-overlap=NUM   The minimum required overlap length between two\n"
 "                          reads to provide a confident overlap.  Default:\n"
@@ -243,20 +289,32 @@ static void usage(void)
 "  -v, --version           Display version.\n"
 	;
 	fputs(usage_str, stdout);
+	if (isatty(STDOUT_FILENO)) {
+		/* Just to be extra user-friendly... */
+		printf("\nRun `%s --help | "PAGER"' to "
+		       "prevent this text from scrolling by.\n", argv0);
+	}
 }
 
-static void usage_short(void)
+static void usage_short(const char *argv0)
 {
-	fputs("Usage: flash [OPTIONS] MATES_1.FASTQ MATES_2.FASTQ\n"
-	      "Try `flash -h' for more information.\n",
-	      stderr);
+	fprintf(stderr,
+		"Usage: flash [OPTIONS] MATES_1.FASTQ MATES_2.FASTQ\n"
+		"Run `%s --help | "PAGER"' for more information.\n", argv0);
 }
 
 static void version(void)
 {
-	puts("FLASH " VERSION_STR);
-	puts("License:  GNU General Public License Version 3+ (http://gnu.org/licenses/gpl.html)");
-	puts("Report bugs to flash.comment@gmail.com or https://sourceforge.net/p/flashpage/bugs");
+	fputs(
+"FLASH "VERSION_STR"\n"
+"Copyright (C) 2012 Tanja Magoc\n"
+"Copyright (C) 2012, 2013, 2014 Eric Biggers\n"
+"License GPLv3+; GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\n"
+"This is free software: you are free to change and redistribute it.\n"
+"There is NO WARRANTY, to the extent permitted by law.\n"
+"\n"
+"Report bugs to flash.comment@gmail.com or https://sourceforge.net/p/flashpage/bugs\n"
+	, stdout);
 }
 
 enum {
@@ -676,6 +734,8 @@ int main(int argc, char **argv)
 {
 	infofile = stdout;
 
+	const char *argv0 = argv[0];
+
 	struct combine_params alg_params = {
 		.max_overlap = 0,
 		.min_overlap = 10,
@@ -877,10 +937,10 @@ int main(int argc, char **argv)
 			version();
 			return 0;
 		case 'h':
-			usage();
+			usage(argv0);
 			return 0;
 		default:
-			usage_short();
+			usage_short(argv0);
 			return 2;
 		}
 	}
@@ -905,7 +965,7 @@ int main(int argc, char **argv)
 	argv += optind;
 
 	if (argc == 0 || argc > 2) {
-		usage_short();
+		usage_short(argv0);
 		return 2;
 	}
 	if (interleaved_input && argc != 1)

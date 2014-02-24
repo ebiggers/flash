@@ -2,6 +2,7 @@ Version 1.2.9-beta
 -------------------
 - The core algorithm of FLASH has been optimized using SSE and SSE2
   instructions.  On x86_64 CPUs it now can run over twice as fast.
+- The help output of FLASH has been improved.
 - Added supported for tab-delimited input and output.
 - FLASH now displays more informative error messages in some cases.
 - Reorganized some of the code so that it's easier to modify.
