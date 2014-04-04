@@ -52,7 +52,8 @@
 #  define PAGER "less"
 #endif
 
-static void usage(const char *argv0)
+static void
+usage(const char *argv0)
 {
 	const char *usage_str =
 "Usage: flash [OPTIONS] MATES_1.FASTQ MATES_2.FASTQ\n"
@@ -311,14 +312,16 @@ static void usage(const char *argv0)
 	}
 }
 
-static void usage_short(const char *argv0)
+static void
+usage_short(const char *argv0)
 {
 	fprintf(stderr,
 		"Usage: flash [OPTIONS] MATES_1.FASTQ MATES_2.FASTQ\n"
 		"Run `%s --help | "PAGER"' for more information.\n", argv0);
 }
 
-static void version(void)
+static void
+version(void)
 {
 	fputs(
 "FLASH "VERSION_STR"\n"
@@ -431,19 +434,21 @@ struct histogram {
 	size_t len;
 };
 
-static void hist_init(struct histogram *hist)
+static void
+hist_init(struct histogram *hist)
 {
 	hist->array = NULL;
 	hist->len = 0;
 }
 
-static void hist_destroy(struct histogram *hist)
+static void
+hist_destroy(struct histogram *hist)
 {
 	xfree(hist->array, hist->len * sizeof(hist->array[0]));
 }
 
-static void hist_add(struct histogram *hist, unsigned long idx,
-		     unsigned long amount)
+static void
+hist_add(struct histogram *hist, unsigned long idx, unsigned long amount)
 {
 	unsigned long *array = hist->array;
 	size_t old_len = hist->len;
@@ -458,25 +463,28 @@ static void hist_add(struct histogram *hist, unsigned long idx,
 	array[idx] += amount;
 }
 
-static void hist_inc(struct histogram *hist, unsigned long idx)
+static void
+hist_inc(struct histogram *hist, unsigned long idx)
 {
 	hist_add(hist, idx, 1);
 }
 
-static void hist_combine(struct histogram *hist, const struct histogram *other)
+static void
+hist_combine(struct histogram *hist, const struct histogram *other)
 {
 	for (size_t i = 0; i < other->len; i++)
 		hist_add(hist, i, other->array[i]);
 }
 
-static unsigned long hist_count_at(const struct histogram *hist,
-				   unsigned long idx)
+static unsigned long
+hist_count_at(const struct histogram *hist, unsigned long idx)
 {
 	assert(idx < hist->len);
 	return hist->array[idx];
 }
 
-static unsigned long hist_total_zero(const struct histogram *hist)
+static unsigned long
+hist_total_zero(const struct histogram *hist)
 {
 	if (hist->len == 0)
 		return 0;
@@ -484,7 +492,8 @@ static unsigned long hist_total_zero(const struct histogram *hist)
 		return hist->array[0];
 }
 
-static unsigned long hist_total(const struct histogram *hist)
+static unsigned long
+hist_total(const struct histogram *hist)
 {
 	unsigned long total = 0;
 	for (size_t i = 0; i < hist->len; i++)
@@ -492,10 +501,9 @@ static unsigned long hist_total(const struct histogram *hist)
 	return total;
 }
 
-static void hist_stats(const struct histogram *hist,
-		       unsigned long *max_freq_ret,
-		       long *first_nonzero_idx_ret,
-		       long *last_nonzero_idx_ret)
+static void
+hist_stats(const struct histogram *hist, unsigned long *max_freq_ret,
+	   long *first_nonzero_idx_ret, long *last_nonzero_idx_ret)
 {
 	*max_freq_ret = 0;
 	*first_nonzero_idx_ret = -1;
@@ -513,9 +521,9 @@ static void hist_stats(const struct histogram *hist,
 }
 
 
-static void write_hist_file(const char *hist_file,
-			    const struct histogram *hist,
-			    long first_nonzero_idx, long last_nonzero_idx)
+static void
+write_hist_file(const char *hist_file, const struct histogram *hist,
+		long first_nonzero_idx, long last_nonzero_idx)
 {
 	FILE *fp = xfopen(hist_file, "w");
 	for (long i = first_nonzero_idx; i <= last_nonzero_idx; i++) {
@@ -531,11 +539,10 @@ write_error:
 	fatal_error_with_errno("Error writing to \"%s\"", hist_file);
 }
 
-static void write_histogram_file(const char *histogram_file,
-				 const struct histogram *hist,
-				 long first_nonzero_idx,
-				 long last_nonzero_idx,
-				 unsigned long max_freq)
+static void
+write_histogram_file(const char *histogram_file, const struct histogram *hist,
+		     long first_nonzero_idx, long last_nonzero_idx,
+		     unsigned long max_freq)
 {
 	const double max_num_asterisks = 72;
 	double scale = max_num_asterisks / (double)max_freq;
@@ -626,7 +633,8 @@ free_empty_sets(struct empty_sets *e)
 }
 
 /* This procedure is executed in parallel by all the combiner threads. */
-static void *combiner_thread_proc(void *_params)
+static void *
+combiner_thread_proc(void *_params)
 {
 	struct combiner_thread_params *params = _params;
 
@@ -748,7 +756,8 @@ static void *combiner_thread_proc(void *_params)
 	return NULL;
 }
 
-int main(int argc, char **argv)
+int
+main(int argc, char **argv)
 {
 	infofile = stdout;
 
