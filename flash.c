@@ -556,6 +556,7 @@ write_error:
 struct flash_stats {
 	struct histogram innie_lens;
 	struct histogram outie_lens;
+	struct histogram overlap_lens;
 	uint64_t num_uncombined;
 	uint64_t num_innie;
 	uint64_t num_outie;
@@ -566,6 +567,7 @@ flash_stats_init(struct flash_stats *stats)
 {
 	hist_init(&stats->innie_lens);
 	hist_init(&stats->outie_lens);
+	hist_init(&stats->overlap_lens);
 	stats->num_uncombined = 0;
 	stats->num_innie = 0;
 	stats->num_outie = 0;
@@ -576,6 +578,7 @@ flash_stats_combine(struct flash_stats *stats, const struct flash_stats *other)
 {
 	hist_combine(&stats->innie_lens, &other->innie_lens);
 	hist_combine(&stats->outie_lens, &other->outie_lens);
+	hist_combine(&stats->overlap_lens, &other->overlap_lens);
 	stats->num_uncombined += other->num_uncombined;
 	stats->num_innie += other->num_innie;
 	stats->num_outie += other->num_outie;
@@ -586,6 +589,7 @@ flash_stats_destroy(struct flash_stats *stats)
 {
 	hist_destroy(&stats->innie_lens);
 	hist_destroy(&stats->outie_lens);
+	hist_destroy(&stats->overlap_lens);
 }
 
 struct common_combiner_thread_params {
@@ -712,6 +716,9 @@ combiner_thread_proc(void *_params)
 			combined:
 				/* Combination was successful.  */
 
+				hist_inc(&stats->overlap_lens,
+					 r1->seq_len + r2->seq_len - r_combined->seq_len);
+
 				/* Uncombined read structures are unneeded; mark
 				 * them as available.  */
 
@@ -785,6 +792,31 @@ combiner_thread_proc(void *_params)
 
 	xfree(params, sizeof(*params));
 	return NULL;
+}
+
+static void
+warn_about_long_overlaps(const struct flash_stats *stats, int max_overlap)
+{
+	uint64_t long_overlap_count;
+	double long_overlap_percent;
+
+	long_overlap_count = 0;
+	for (size_t i = max_overlap + 1; i < stats->overlap_lens.len; i++)
+		long_overlap_count += hist_count_at(&stats->overlap_lens, i);
+
+	long_overlap_percent = TO_PERCENT(long_overlap_count,
+					  stats->num_innie + stats->num_outie);
+
+	if (long_overlap_percent > 10.0) {
+		warning("An unexpectedly high proportion of combined pairs "
+				"(%.2f%%)\n"
+			"overlapped by more than %d bp, the --max-overlap (-M) "
+				"parameter.  Consider\n"
+			"increasing this parameter.  (As-is, FLASH is "
+				"penalizing overlaps longer than\n"
+			"%d bp when considering them for possible combining!)",
+			long_overlap_percent, max_overlap, max_overlap);
+	}
 }
 
 int
@@ -1345,6 +1377,8 @@ main(int argc, char **argv)
 		if (alg_params.allow_outies)
 			hist_destroy(combined_read_lens);
 	}
+
+	warn_about_long_overlaps(total_stats, alg_params.max_overlap);
 
 	flash_stats_destroy(total_stats);
 
