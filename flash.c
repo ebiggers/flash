@@ -430,7 +430,7 @@ output_format_str(char *buf, size_t bufsize,
 /* This is just a dynamic array used as a histogram.  It's needed to count the
  * frequencies of the lengths of the combined reads. */
 struct histogram {
-	unsigned long *array;
+	uint64_t *array;
 	size_t len;
 };
 
@@ -448,9 +448,9 @@ hist_destroy(struct histogram *hist)
 }
 
 static void
-hist_add(struct histogram *hist, unsigned long idx, unsigned long amount)
+hist_add(struct histogram *hist, size_t idx, uint64_t amount)
 {
-	unsigned long *array = hist->array;
+	uint64_t *array = hist->array;
 	size_t old_len = hist->len;
 	if (idx >= old_len) {
 		size_t new_len = idx + 1;
@@ -464,7 +464,7 @@ hist_add(struct histogram *hist, unsigned long idx, unsigned long amount)
 }
 
 static void
-hist_inc(struct histogram *hist, unsigned long idx)
+hist_inc(struct histogram *hist, size_t idx)
 {
 	hist_add(hist, idx, 1);
 }
@@ -476,14 +476,14 @@ hist_combine(struct histogram *hist, const struct histogram *other)
 		hist_add(hist, i, other->array[i]);
 }
 
-static unsigned long
-hist_count_at(const struct histogram *hist, unsigned long idx)
+static uint64_t
+hist_count_at(const struct histogram *hist, size_t idx)
 {
 	assert(idx < hist->len);
 	return hist->array[idx];
 }
 
-static unsigned long
+static uint64_t
 hist_total_zero(const struct histogram *hist)
 {
 	if (hist->len == 0)
@@ -492,24 +492,24 @@ hist_total_zero(const struct histogram *hist)
 		return hist->array[0];
 }
 
-static unsigned long
+static uint64_t
 hist_total(const struct histogram *hist)
 {
-	unsigned long total = 0;
+	uint64_t total = 0;
 	for (size_t i = 0; i < hist->len; i++)
 		total += hist->array[i];
 	return total;
 }
 
 static void
-hist_stats(const struct histogram *hist, unsigned long *max_freq_ret,
+hist_stats(const struct histogram *hist, uint64_t *max_freq_ret,
 	   long *first_nonzero_idx_ret, long *last_nonzero_idx_ret)
 {
 	*max_freq_ret = 0;
 	*first_nonzero_idx_ret = -1;
 	*last_nonzero_idx_ret = -2;
 	for (size_t i = 1; i < hist->len; i++) {
-		unsigned long freq = hist->array[i];
+		uint64_t freq = hist->array[i];
 		if (freq != 0) {
 			if (*first_nonzero_idx_ret == -1)
 				*first_nonzero_idx_ret = i;
@@ -527,9 +527,9 @@ write_hist_file(const char *hist_file, const struct histogram *hist,
 {
 	FILE *fp = xfopen(hist_file, "w");
 	for (long i = first_nonzero_idx; i <= last_nonzero_idx; i++) {
-		unsigned long count = hist_count_at(hist, i);
+		uint64_t count = hist_count_at(hist, i);
 		if (count != 0)
-			if (fprintf(fp, "%ld\t%lu\n", i, count) < 0)
+			if (fprintf(fp, "%ld\t%"PRIu64"\n", i, count) < 0)
 				goto write_error;
 	}
 	xfclose(fp, hist_file);
@@ -542,7 +542,7 @@ write_error:
 static void
 write_histogram_file(const char *histogram_file, const struct histogram *hist,
 		     long first_nonzero_idx, long last_nonzero_idx,
-		     unsigned long max_freq)
+		     uint64_t max_freq)
 {
 	const double max_num_asterisks = 72;
 	double scale = max_num_asterisks / (double)max_freq;
@@ -1184,24 +1184,24 @@ main(int argc, char **argv)
 	stop_readers_and_writers(iohandle);
 
 	if (verbose) {
-		unsigned long num_combined_reads;
-		unsigned long num_uncombined_reads;
-		unsigned long num_total_reads;
+		uint64_t num_combined_reads;
+		uint64_t num_uncombined_reads;
+		uint64_t num_total_reads;
 		num_uncombined_reads = hist_total_zero(combined_read_len_hist);
 		num_total_reads = hist_total(combined_read_len_hist);
 		num_combined_reads = num_total_reads - num_uncombined_reads;
 		info(" ");
 		info("Read combination statistics:");
-		info("    Total reads:      %lu", num_total_reads);
-		info("    Combined reads:   %lu", num_combined_reads);
-		info("    Uncombined reads: %lu", num_uncombined_reads);
+		info("    Total reads:      %"PRIu64, num_total_reads);
+		info("    Combined reads:   %"PRIu64, num_combined_reads);
+		info("    Uncombined reads: %"PRIu64, num_uncombined_reads);
 		info("    Percent combined: %.2f%%", (num_total_reads) ?
 			(double)num_combined_reads * 100 / num_total_reads : 0);
 		info(" ");
 	}
 
 	if (!to_stdout) {
-		unsigned long max_freq;
+		uint64_t max_freq;
 		long first_nonzero_idx;
 		long last_nonzero_idx;
 
