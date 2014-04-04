@@ -181,6 +181,9 @@ usage(const char *argv0)
 "                          better-fitting one will be chosen using the same\n"
 "                          scoring algorithm that FLASH normally uses.\n"
 "\n"
+"                          This option also causes extra .innie and .outie\n"
+"                          histogram files to be produced.\n"
+"\n"
 "  -p, --phred-offset=OFFSET\n"
 "                          The smallest ASCII value of the characters used to\n"
 "                          represent quality values of bases in FASTQ files.\n"
@@ -486,24 +489,6 @@ hist_count_at(const struct histogram *hist, size_t idx)
 	return hist->array[idx];
 }
 
-static uint64_t
-hist_total_zero(const struct histogram *hist)
-{
-	if (hist->len == 0)
-		return 0;
-	else
-		return hist->array[0];
-}
-
-static uint64_t
-hist_total(const struct histogram *hist)
-{
-	uint64_t total = 0;
-	for (size_t i = 0; i < hist->len; i++)
-		total += hist->array[i];
-	return total;
-}
-
 static void
 hist_stats(const struct histogram *hist, uint64_t *max_freq_ret,
 	   long *first_nonzero_idx_ret, long *last_nonzero_idx_ret)
@@ -569,7 +554,9 @@ write_error:
 }
 
 struct flash_stats {
-	struct histogram combined_read_lens;
+	struct histogram innie_lens;
+	struct histogram outie_lens;
+	uint64_t num_uncombined;
 	uint64_t num_innie;
 	uint64_t num_outie;
 };
@@ -577,7 +564,9 @@ struct flash_stats {
 static void
 flash_stats_init(struct flash_stats *stats)
 {
-	hist_init(&stats->combined_read_lens);
+	hist_init(&stats->innie_lens);
+	hist_init(&stats->outie_lens);
+	stats->num_uncombined = 0;
 	stats->num_innie = 0;
 	stats->num_outie = 0;
 }
@@ -585,7 +574,9 @@ flash_stats_init(struct flash_stats *stats)
 static void
 flash_stats_combine(struct flash_stats *stats, const struct flash_stats *other)
 {
-	hist_combine(&stats->combined_read_lens, &other->combined_read_lens);
+	hist_combine(&stats->innie_lens, &other->innie_lens);
+	hist_combine(&stats->outie_lens, &other->outie_lens);
+	stats->num_uncombined += other->num_uncombined;
 	stats->num_innie += other->num_innie;
 	stats->num_outie += other->num_outie;
 }
@@ -593,7 +584,8 @@ flash_stats_combine(struct flash_stats *stats, const struct flash_stats *other)
 static void
 flash_stats_destroy(struct flash_stats *stats)
 {
-	hist_destroy(&stats->combined_read_lens);
+	hist_destroy(&stats->innie_lens);
+	hist_destroy(&stats->outie_lens);
 }
 
 struct common_combiner_thread_params {
@@ -709,10 +701,12 @@ combiner_thread_proc(void *_params)
 
 			case COMBINED_AS_INNIE:
 				stats->num_innie++;
+				hist_inc(&stats->innie_lens, r_combined->seq_len);
 				goto combined;
 
 			case COMBINED_AS_OUTIE:
 				stats->num_outie++;
+				hist_inc(&stats->outie_lens, r_combined->seq_len);
 				goto combined;
 
 			combined:
@@ -732,10 +726,6 @@ combiner_thread_proc(void *_params)
 				s_avail_1->reads[s_avail_1->filled++] = r1;
 				s_avail_2->reads[s_avail_2->filled++] = r2;
 
-				/* Tally length of combined read.  */
-				hist_inc(&stats->combined_read_lens,
-					 r_combined->seq_len);
-
 				/* Compute tag for combined read.  */
 				get_combined_tag(r1, r2, r_combined);
 
@@ -747,9 +737,7 @@ combiner_thread_proc(void *_params)
 				break;
 
 			case NOT_COMBINED:
-				/* Tally 0 length for pair that could not be
-				 * combined.  */
-				hist_inc(&stats->combined_read_lens, 0);
+				stats->num_uncombined++;
 
 				/* Send uncombined reads.  */
 				if (s_uncombined_1->filled == s_uncombined_1->num_reads) {
@@ -1219,57 +1207,88 @@ main(int argc, char **argv)
 	stop_readers_and_writers(iohandle);
 
 	if (verbose) {
-		uint64_t num_combined_reads;
-		uint64_t num_uncombined_reads;
-		uint64_t num_total_reads;
+		uint64_t num_combined_pairs;
+		uint64_t num_uncombined_pairs;
+		uint64_t num_total_pairs;
 
-		num_uncombined_reads = hist_total_zero(&total_stats->combined_read_lens);
-		num_total_reads = hist_total(&total_stats->combined_read_lens);
-		num_combined_reads = num_total_reads - num_uncombined_reads;
+		num_combined_pairs = total_stats->num_innie + total_stats->num_outie;
+		num_uncombined_pairs = total_stats->num_uncombined;
+		num_total_pairs = num_combined_pairs + num_uncombined_pairs;
+
 		info(" ");
 		info("Read combination statistics:");
-		info("    Total reads:      %"PRIu64, num_total_reads);
-		info("    Combined reads:   %"PRIu64, num_combined_reads);
+		info("    Total pairs:      %"PRIu64, num_total_pairs);
+		info("    Combined pairs:   %"PRIu64, num_combined_pairs);
 		if (alg_params.allow_outies) {
 			info("        Innie pairs:   %"PRIu64" "
 			     "(%.2f%% of combined)",
 			     total_stats->num_innie,
 			     TO_PERCENT(total_stats->num_innie,
-					num_combined_reads));
+					num_combined_pairs));
 			info("        Outie pairs:   %"PRIu64" "
 			     "(%.2f%% of combined)",
 			     total_stats->num_outie,
 			     TO_PERCENT(total_stats->num_outie,
-					num_combined_reads));
+					num_combined_pairs));
 		}
-		info("    Uncombined reads: %"PRIu64, num_uncombined_reads);
+		info("    Uncombined pairs: %"PRIu64, num_uncombined_pairs);
 		info("    Percent combined: %.2f%%",
-		     TO_PERCENT(num_combined_reads, num_total_reads));
+		     TO_PERCENT(num_combined_pairs, num_total_pairs));
 		info(" ");
 	}
 
 	if (!to_stdout) {
-		uint64_t max_freq;
-		long first_nonzero_idx;
-		long last_nonzero_idx;
+		struct histogram _combined_read_lens;
+		int hist_count;
+		struct histogram *combined_read_lens;
 
 		if (verbose)
 			info("Writing histogram files.");
 
-		hist_stats(&total_stats->combined_read_lens,
-			   &max_freq, &first_nonzero_idx, &last_nonzero_idx);
+		if (alg_params.allow_outies) {
+			hist_count = 3;
+			hist_init(&_combined_read_lens);
+			hist_combine(&_combined_read_lens, &total_stats->innie_lens);
+			hist_combine(&_combined_read_lens, &total_stats->outie_lens);
+			combined_read_lens = &_combined_read_lens;
+		} else {
+			hist_count = 1;
+			combined_read_lens = &total_stats->innie_lens;
+		}
 
-		/* Write the raw numbers of the combined read length histogram
-		 * to the PREFIX.hist file. */
-		strcpy(suffix, ".hist");
-		write_hist_file(name_buf, &total_stats->combined_read_lens,
-				first_nonzero_idx, last_nonzero_idx);
-		/* Write a pretty representation of the combined read length
-		 * histogram to the PREFIX.histogram file. */
-		strcpy(suffix, ".histogram");
-		write_histogram_file(name_buf, &total_stats->combined_read_lens,
-				     first_nonzero_idx, last_nonzero_idx,
-				     max_freq);
+		struct {
+			const char *suffix;
+			const struct histogram *hist;
+		} hist_specs[] = {
+			{ "", combined_read_lens },
+			{ ".innie", &total_stats->innie_lens },
+			{ ".outie", &total_stats->outie_lens },
+		};
+
+		for (int i = 0; i < hist_count; i++) {
+			uint64_t max_freq;
+			long first_nonzero_idx;
+			long last_nonzero_idx;
+
+			hist_stats(hist_specs[i].hist,
+				   &max_freq, &first_nonzero_idx, &last_nonzero_idx);
+
+			/* Write the raw numbers of the combined read length
+			 * histogram to the PREFIX.hist file.  */
+			sprintf(suffix, ".hist%s", hist_specs[i].suffix);
+			write_hist_file(name_buf, hist_specs[i].hist,
+					first_nonzero_idx, last_nonzero_idx);
+
+			/* Write a pretty representation of the combined read
+			 * length histogram to the PREFIX.histogram file.  */
+			sprintf(suffix, ".histogram%s", hist_specs[i].suffix);
+			write_histogram_file(name_buf, hist_specs[i].hist,
+					     first_nonzero_idx, last_nonzero_idx,
+					     max_freq);
+		}
+
+		if (alg_params.allow_outies)
+			hist_destroy(combined_read_lens);
 	}
 
 	flash_stats_destroy(total_stats);
