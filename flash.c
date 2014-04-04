@@ -801,6 +801,7 @@ main(int argc, char **argv)
 		.cap_mismatch_quals = false,
 		.allow_outies = false,
 	};
+	bool max_overlap_specified = false;
 	struct read_format_params iparams = {
 		.fmt = READ_FORMAT_FASTQ,
 		.phred_offset = 33,
@@ -812,6 +813,9 @@ main(int argc, char **argv)
 	int read_len               = 100;
 	int fragment_len           = 180;
 	int fragment_len_stddev    = 18;
+	bool read_len_specified    = false;
+	bool fragment_len_specified = false;
+	bool fragment_len_stddev_specified = false;
 	const char *prefix         = "out";
 	const char *output_dir     = ".";
 	bool to_stdout             = false;
@@ -851,6 +855,7 @@ main(int argc, char **argv)
 				fatal_error("Maximum overlap must be "
 					    "a positive integer!  Please check "
 					    "option -M.");
+			max_overlap_specified = true;
 			break;
 		case 'x':
 			alg_params.max_mismatch_density = strtod(optarg, &tmp);
@@ -891,6 +896,7 @@ main(int argc, char **argv)
 				fatal_error("Fragment length must be a "
 					    "positive integer!  Please check "
 					    "option -f.");
+			fragment_len_specified = true;
 			break;
 		case 's':
 			fragment_len_stddev = strtol(optarg, &tmp, 10);
@@ -898,6 +904,7 @@ main(int argc, char **argv)
 				fatal_error("Fragment length standard deviation "
 					    "must be a positive integer!  "
 					    "Please check option -s.");
+			fragment_len_stddev_specified = true;
 			break;
 		case 'r':
 			read_len = strtol(optarg, &tmp, 10);
@@ -905,6 +912,7 @@ main(int argc, char **argv)
 				fatal_error("Read length must be a "
 					    "positive integer!  Please check "
 					    "option -r.");
+			read_len_specified = true;
 			break;
 		case CAP_MISMATCH_QUALS_OPTION:
 			alg_params.cap_mismatch_quals = true;
@@ -1007,9 +1015,56 @@ main(int argc, char **argv)
 		}
 	}
 
-	if (alg_params.max_overlap == 0)
+	if (max_overlap_specified) {
+		if (read_len_specified) {
+			warning("--read-len (-r) has no effect when "
+					"--max-overlap (-M) is also\n"
+				"specified!");
+		}
+		if (fragment_len_specified) {
+			warning("--fragment-len (-f) has no effect when "
+					"--max-overlap (-M) is\n"
+				"also specified!");
+		}
+		if (fragment_len_stddev_specified) {
+			warning("--fragment-len-stddev (-s) has no effect when "
+					"--max-overlap\n"
+				"(-M) is also specified!");
+		}
+	} else {
+		int count = (int)read_len_specified +
+			    (int)fragment_len_specified +
+			    (int)fragment_len_stddev_specified;
+
 		alg_params.max_overlap = (int)(2 * read_len - fragment_len +
 					       2.5 * fragment_len_stddev);
+
+		if (count == 1 || count == 2) {
+			warning("You specified at least one, but not all, "
+					"of --read-len (-r),\n"
+				"--fragment-len (-f), and "
+					"--fragment-len-stddev (-s).  FLASH is using\n"
+				"read_len=%d, fragment_len=%d, and "
+					"fragment_len_stddev=%d to compute\n"
+				"max_overlap=%d.  If this is not correct for "
+					"your data you must either specify\n"
+				"all these options or specify --max-overlap (-M).",
+					read_len,
+					fragment_len,
+					fragment_len_stddev,
+					alg_params.max_overlap);
+		}
+	#if 0
+		if (count == 0) {
+			warning("Using default maximum overlap of %d bp! "
+					"Use --max-overlap (-M)\n"
+				"to change it.  Or specify all of --read-len "
+					"(-r), --fragment-len (-f), and\n"
+				"--fragment-len-stddev (-s).",
+				alg_params.max_overlap);
+		}
+	#endif
+	}
 
 	if (alg_params.max_overlap < alg_params.min_overlap) {
 		fatal_error(
