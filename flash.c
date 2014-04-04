@@ -52,6 +52,9 @@
 #  define PAGER "less"
 #endif
 
+#define TO_PERCENT(n, d) \
+	((d) == 0 ? 0 : ((double)(n) * 100 / (d)))
+
 static void
 usage(const char *argv0)
 {
@@ -565,6 +568,34 @@ write_error:
 	fatal_error_with_errno("Error writing to \"%s\"", histogram_file);
 }
 
+struct flash_stats {
+	struct histogram combined_read_lens;
+	uint64_t num_innie;
+	uint64_t num_outie;
+};
+
+static void
+flash_stats_init(struct flash_stats *stats)
+{
+	hist_init(&stats->combined_read_lens);
+	stats->num_innie = 0;
+	stats->num_outie = 0;
+}
+
+static void
+flash_stats_combine(struct flash_stats *stats, const struct flash_stats *other)
+{
+	hist_combine(&stats->combined_read_lens, &other->combined_read_lens);
+	stats->num_innie += other->num_innie;
+	stats->num_outie += other->num_outie;
+}
+
+static void
+flash_stats_destroy(struct flash_stats *stats)
+{
+	hist_destroy(&stats->combined_read_lens);
+}
+
 struct common_combiner_thread_params {
 	struct read_io_handle *iohandle;
 	struct combine_params alg_params;
@@ -572,7 +603,7 @@ struct common_combiner_thread_params {
 
 struct combiner_thread_params {
 	struct common_combiner_thread_params *common;
-	struct histogram *combined_read_len_hist;
+	struct flash_stats *stats;
 };
 
 /* Buffer for read_sets for which all the read pointers have been invalidated.
@@ -638,7 +669,7 @@ combiner_thread_proc(void *_params)
 {
 	struct combiner_thread_params *params = _params;
 
-	struct histogram *combined_read_len_hist = params->combined_read_len_hist;
+	struct flash_stats *stats = params->stats;
 	struct read_io_handle *iohandle = params->common->iohandle;
 	const struct combine_params *alg_params = &params->common->alg_params;
 
@@ -674,7 +705,17 @@ combiner_thread_proc(void *_params)
 			/* Try combining the reads.  */
 			status = combine_reads(r1, r2, r_combined, alg_params);
 
-			if (status != NOT_COMBINED) {
+			switch (status) {
+
+			case COMBINED_AS_INNIE:
+				stats->num_innie++;
+				goto combined;
+
+			case COMBINED_AS_OUTIE:
+				stats->num_outie++;
+				goto combined;
+
+			combined:
 				/* Combination was successful.  */
 
 				/* Uncombined read structures are unneeded; mark
@@ -692,7 +733,7 @@ combiner_thread_proc(void *_params)
 				s_avail_2->reads[s_avail_2->filled++] = r2;
 
 				/* Tally length of combined read.  */
-				hist_inc(combined_read_len_hist,
+				hist_inc(&stats->combined_read_lens,
 					 r_combined->seq_len);
 
 				/* Compute tag for combined read.  */
@@ -703,10 +744,12 @@ combiner_thread_proc(void *_params)
 					put_combined_reads(iohandle, s_combined);
 					s_combined = get_avail_read_set(iohandle);
 				}
-			} else {
+				break;
+
+			case NOT_COMBINED:
 				/* Tally 0 length for pair that could not be
 				 * combined.  */
-				hist_inc(combined_read_len_hist, 0);
+				hist_inc(&stats->combined_read_lens, 0);
 
 				/* Send uncombined reads.  */
 				if (s_uncombined_1->filled == s_uncombined_1->num_reads) {
@@ -1134,17 +1177,10 @@ main(int argc, char **argv)
 	 * or uncombined reads to the writer threads.
 	 */
 
-	/* Histogram of how many combined reads have a given length.
-	 *
-	 * The zero index slot counts how many reads were not combined.
-	 *
-	 * There is a copy of the histogram for each thread, and they are
-	 * combined after all the combiner threads are done. */
-	struct histogram combined_read_len_hists[num_combiner_threads];
-	struct histogram *combined_read_len_hist =
-			&combined_read_len_hists[num_combiner_threads - 1];
-	for (size_t i = 0; i < ARRAY_LEN(combined_read_len_hists); i++)
-		hist_init(&combined_read_len_hists[i]);
+	struct flash_stats stats[num_combiner_threads];
+	struct flash_stats *total_stats = &stats[num_combiner_threads - 1];
+	for (size_t i = 0; i < num_combiner_threads; i++)
+		flash_stats_init(&stats[i]);
 
 	struct read_io_handle *iohandle =
 		start_readers_and_writers(mates1_in,
@@ -1168,7 +1204,7 @@ main(int argc, char **argv)
 
 		p = xmalloc(sizeof(*p));
 		p->common = &common;
-		p->combined_read_len_hist = &combined_read_len_hists[i];
+		p->stats = &stats[i];
 		if (i < num_combiner_threads - 1)
 			other_combiner_threads[i] =
 					create_thread(combiner_thread_proc, p);
@@ -1177,9 +1213,8 @@ main(int argc, char **argv)
 	}
 	for (unsigned i = 0; i < num_combiner_threads - 1; i++) {
 		join_thread(other_combiner_threads[i]);
-		hist_combine(combined_read_len_hist,
-			     &combined_read_len_hists[i]);
-		hist_destroy(&combined_read_len_hists[i]);
+		flash_stats_combine(total_stats, &stats[i]);
+		flash_stats_destroy(&stats[i]);
 	}
 	stop_readers_and_writers(iohandle);
 
@@ -1187,16 +1222,29 @@ main(int argc, char **argv)
 		uint64_t num_combined_reads;
 		uint64_t num_uncombined_reads;
 		uint64_t num_total_reads;
-		num_uncombined_reads = hist_total_zero(combined_read_len_hist);
-		num_total_reads = hist_total(combined_read_len_hist);
+
+		num_uncombined_reads = hist_total_zero(&total_stats->combined_read_lens);
+		num_total_reads = hist_total(&total_stats->combined_read_lens);
 		num_combined_reads = num_total_reads - num_uncombined_reads;
 		info(" ");
 		info("Read combination statistics:");
 		info("    Total reads:      %"PRIu64, num_total_reads);
 		info("    Combined reads:   %"PRIu64, num_combined_reads);
+		if (alg_params.allow_outies) {
+			info("        Innie pairs:   %"PRIu64" "
+			     "(%.2f%% of combined)",
+			     total_stats->num_innie,
+			     TO_PERCENT(total_stats->num_innie,
+					num_combined_reads));
+			info("        Outie pairs:   %"PRIu64" "
+			     "(%.2f%% of combined)",
+			     total_stats->num_outie,
+			     TO_PERCENT(total_stats->num_outie,
+					num_combined_reads));
+		}
 		info("    Uncombined reads: %"PRIu64, num_uncombined_reads);
-		info("    Percent combined: %.2f%%", (num_total_reads) ?
-			(double)num_combined_reads * 100 / num_total_reads : 0);
+		info("    Percent combined: %.2f%%",
+		     TO_PERCENT(num_combined_reads, num_total_reads));
 		info(" ");
 	}
 
@@ -1208,22 +1256,23 @@ main(int argc, char **argv)
 		if (verbose)
 			info("Writing histogram files.");
 
-		hist_stats(combined_read_len_hist,
+		hist_stats(&total_stats->combined_read_lens,
 			   &max_freq, &first_nonzero_idx, &last_nonzero_idx);
 
 		/* Write the raw numbers of the combined read length histogram
 		 * to the PREFIX.hist file. */
 		strcpy(suffix, ".hist");
-		write_hist_file(name_buf, combined_read_len_hist,
+		write_hist_file(name_buf, &total_stats->combined_read_lens,
 				first_nonzero_idx, last_nonzero_idx);
 		/* Write a pretty representation of the combined read length
 		 * histogram to the PREFIX.histogram file. */
 		strcpy(suffix, ".histogram");
-		write_histogram_file(name_buf, combined_read_len_hist,
+		write_histogram_file(name_buf, &total_stats->combined_read_lens,
 				     first_nonzero_idx, last_nonzero_idx,
 				     max_freq);
 	}
-	hist_destroy(combined_read_len_hist);
+
+	flash_stats_destroy(total_stats);
 
 	if (verbose) {
 		struct timeval end_time;
