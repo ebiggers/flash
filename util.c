@@ -146,6 +146,8 @@ fatal_error_with_errno(const char *msg, ...)
 	fatal();
 }
 
+unsigned long warning_count = 0;
+
 /* Prints a warning message.  */
 void
 warning(const char *msg, ...)
@@ -153,6 +155,8 @@ warning(const char *msg, ...)
 	va_list va;
 
 	lock_stderr();
+
+	warning_count++;
 
 	va_start(va, msg);
 	fputs(PROGRAM_TAG "WARNING: ", stderr);

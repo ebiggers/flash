@@ -1357,6 +1357,12 @@ main(int argc, char **argv)
 		info("FLASH " VERSION_STR " complete!");
 		info("%.3f seconds elapsed", (double)(end_usec - start_usec) / 1000000);
 	}
+
+	if (warning_count > 0) {
+		info("Finished with %lu warning%s (see above)",
+		     warning_count, warning_count == 1 ? "" : "s");
+	}
+
 	if (out_suffix_allocated)
 		free(out_suffix);
 	if (compress_prog_args_allocated)

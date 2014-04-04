@@ -33,6 +33,8 @@ fatal_error(const char *msg, ...) __noreturn __cold __format(printf, 1, 2);
 extern void
 fatal_error_with_errno(const char *msg, ...) __noreturn __cold __format(printf, 1, 2);
 
+extern unsigned long warning_count;
+
 extern void
 warning(const char *msg, ...) __cold __format(printf, 1, 2);
 
