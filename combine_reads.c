@@ -31,6 +31,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #if defined(__GNUC__) && defined(__SSE2__)
 #  define WITH_SSE2
@@ -241,14 +242,12 @@ compute_mismatch_stats(const char * restrict seq_1,
 	*len_p -= num_uncalled;
 }
 
-/*
- * Return the position of the first overlapping character in the first read
- * (0-based) of the best overlap between two reads, or -1 if the best overlap
- * does not satisfy the required threshold.
- */
+#define NO_ALIGNMENT INT_MIN
+
 static inline int
 pair_align(const struct read *read_1, const struct read *read_2,
-	   int min_overlap, int max_overlap, float max_mismatch_density)
+	   int min_overlap, int max_overlap, float max_mismatch_density,
+	   bool allow_outies)
 {
 	bool haveN = memchr(read_1->seq, 'N', read_1->seq_len) ||
 		     memchr(read_2->seq, 'N', read_2->seq_len);
@@ -257,13 +256,17 @@ pair_align(const struct read *read_1, const struct read *read_2,
 	 * overlap. */
 	float best_mismatch_density = max_mismatch_density + 1.0f;
 	float best_qual_score = 0.0f;
-	int best_position = -1;
+	int best_position = NO_ALIGNMENT;
+	bool doing_outie = false;
+	int start;
+	int end;
 
+again:
 	/* Require at least min_overlap bases overlap, and require that the
 	 * second read is not overlapped such that it is completely contained in
 	 * the first read.  */
-	int start = max(0, read_1->seq_len - read_2->seq_len);
-	int end = read_1->seq_len - min_overlap + 1;
+	start = max(0, read_1->seq_len - read_2->seq_len);
+	end = read_1->seq_len - min_overlap + 1;
 	for (int i = start; i < end; i++) {
 		unsigned num_mismatches;
 		unsigned mismatch_qual_total;
@@ -289,55 +292,42 @@ pair_align(const struct read *read_1, const struct read *read_2,
 			{
 				best_qual_score       = qual_score;
 				best_mismatch_density = mismatch_density;
-				best_position         = i;
+				best_position         = (doing_outie ? -i : i);
 			}
 		}
 	}
 
+	if (allow_outies) {
+		const struct read *tmp = read_1;
+		read_1 = read_2;
+		read_2 = tmp;
+		allow_outies = false;
+		doing_outie = true;
+		goto again;
+	}
+
 	if (best_mismatch_density > max_mismatch_density)
-		return -1;
+		return NO_ALIGNMENT;
 
 	return best_position;
 }
 
-/* This is the entry point for the core algorithm of FLASH.  The following
- * function attempts to combine @read_1 with @read_2, and writes the result into
- * @combined_read.  %true is returned iff combination was successful.
- *
- * Note: @read_2 is provided to this function after having been
- * reverse-complemented.  Hence, the code just aligns the reads in the forward
- * orientation, which is equivalent to aligning the original reads in the
- * desired reverse-complement orientation.
- *
- * Please see the help output of FLASH for the description of the min_overlap,
- * max_overlap, and max_mismatch_density parameters.  (--min-overlap,
- * --max-overlap, and --max-mismatch-density on the command line).
- *
- * You may also want to read the original FLASH publication for a description of
- * the algorithm used here:
- *
- *  Title:   FLASH: fast length adjustment of short reads to improve genome assemblies
- *  Authors: Tanja Magoč and Steven L. Salzberg
- *  URL:     http://bioinformatics.oxfordjournals.org/content/27/21/2957.full
- *
- */
-bool
-combine_reads(const struct read *read_1, const struct read *read_2,
-	      struct read *combined_read,
-	      const struct combine_params *params)
+/* Fills in the combined read from the specified alignment.  */
+static void
+generate_combined_read(const struct read *read_1,
+		       const struct read *read_2,
+		       struct read *combined_read,
+		       int overlap_begin,
+		       bool cap_mismatch_quals)
 {
-	/* Starting position of the alignment in the first read, 0-based. */
-	int overlap_begin;
-
-	/* Length of the overlapping part of two reads. */
-	int overlap_len;
+	/* Length of the overlapping part of two reads.  */
+	int overlap_len = read_1->seq_len - overlap_begin;
 
 	/* Length of the part of the second read not overlapped with the first
-	 * read. */
-	int remaining_len;
+	 * read.  */
+	int remaining_len = read_2->seq_len - overlap_len;
 
-	/* Length of the combined read. */
-	int combined_seq_len;
+	int combined_seq_len = read_1->seq_len + remaining_len;
 
 	const char * restrict seq_1 = read_1->seq;
 	const char * restrict seq_2 = read_2->seq;
@@ -345,22 +335,6 @@ combine_reads(const struct read *read_1, const struct read *read_2,
 	const char * restrict qual_2 = read_2->qual;
 	char * restrict combined_seq;
 	char * restrict combined_qual;
-
-	/* Do the alignment. */
-	overlap_begin = pair_align(read_1, read_2,
-				   params->min_overlap,
-				   params->max_overlap,
-				   params->max_mismatch_density);
-
-	/* If no alignment found, return false */
-	if (overlap_begin < 0)
-		return false;
-
-	/* Fill in the combined read. */
-
-	overlap_len = read_1->seq_len - overlap_begin;
-	remaining_len = read_2->seq_len - overlap_len;
-	combined_seq_len = read_1->seq_len + remaining_len;
 
 	if (combined_read->seq_bufsz < combined_seq_len) {
 		combined_read->seq = xrealloc(combined_read->seq,
@@ -375,16 +349,17 @@ combine_reads(const struct read *read_1, const struct read *read_2,
 
 	combined_seq = combined_read->seq;
 	combined_qual = combined_read->qual;
+
 	combined_read->seq_len = combined_seq_len;
 	combined_read->qual_len = combined_seq_len;
 
-	/* Copy the beginning of the first read. */
+	/* Copy the beginning of read 1 (not in the overlapped region).  */
 	while (overlap_begin--) {
 		*combined_seq++ = *seq_1++;
 		*combined_qual++ = *qual_1++;
 	}
 
-	/* Copy the overlapping part. */
+	/* Copy the overlapped region.  */
 	while (overlap_len--) {
 		if (*seq_1 == *seq_2) {
 			/* Same base in both reads.  Take the higher quality
@@ -414,7 +389,7 @@ combine_reads(const struct read *read_1, const struct read *read_2,
 			 * score without too much penalty.
 			 */
 
-			if (params->cap_mismatch_quals)
+			if (cap_mismatch_quals)
 				*combined_qual = min(min(*qual_1, *qual_2), 2);
 			else
 				*combined_qual = max(abs(*qual_1 - *qual_2), 2);
@@ -441,11 +416,107 @@ combine_reads(const struct read *read_1, const struct read *read_2,
 		qual_1++;
 		qual_2++;
 	}
-	/* Copy the part of the second read in the mate pair that is not in the
-	 * overlapped region. */
+
+	/* Copy the end of read 2 (not in the overlapped region).  */
 	while (remaining_len--) {
 		*combined_seq++ = *seq_2++;
 		*combined_qual++ = *qual_2++;
 	}
-	return true;
+}
+
+/* This is the entry point for the core algorithm of FLASH.  The following
+ * function attempts to combine @read_1 with @read_2, and writes the result into
+ * @combined_read.  COMBINED_AS_INNIE or COMBINED_AS_OUTIE is returned if
+ * combination was successful.  COMBINED_AS_OUTIE is only possible if
+ * params->allow_outies is set.
+ *
+ * Note: @read_2 is provided to this function after having been
+ * reverse-complemented.  Hence, the code just aligns the reads in the forward
+ * orientation, which is equivalent to aligning the original reads in the
+ * desired reverse-complement orientation.
+ *
+ * Please see the help output of FLASH for the description of the min_overlap,
+ * max_overlap, and max_mismatch_density parameters.  (--min-overlap,
+ * --max-overlap, and --max-mismatch-density on the command line).
+ *
+ * You may also want to read the original FLASH publication for a description of
+ * the algorithm used here:
+ *
+ *  Title:   FLASH: fast length adjustment of short reads to improve genome assemblies
+ *  Authors: Tanja Magoč and Steven L. Salzberg
+ *  URL:     http://bioinformatics.oxfordjournals.org/content/27/21/2957.full
+ *
+ */
+enum combine_status
+combine_reads(const struct read *read_1, const struct read *read_2,
+	      struct read *combined_read,
+	      const struct combine_params *params)
+{
+	int overlap_begin;
+	enum combine_status status;
+
+	/* Do the alignment.  */
+
+	overlap_begin = pair_align(read_1, read_2,
+				   params->min_overlap,
+				   params->max_overlap,
+				   params->max_mismatch_density,
+				   params->allow_outies);
+	/*
+	 * If overlap_begin == NO_ALIGNMENT, then no sufficient overlap between
+	 * the reads was found.
+	 *
+	 * If overlap_begin >= 0, then the pair forms an "innie" overlap, and
+	 * overlap_begin is the 0-based position in read_1 at which read_2
+	 * begins.  (Shown below with read 2 already reverse complemented!)
+	 *
+	 *		0	  overlap_begin
+	 *	        |         |
+	 *	Read 1: ------------------>
+	 *	Read 2:           ---------------------->
+	 *
+	 * If overlap_begin < 0, then the pair forms an "outie" overlap, and
+	 * overlap_begin is the negative of the 0-based position in read_2 at
+	 * which read_1 begins. (Shown below with read 2 already reverse
+	 * complemented!)
+	 *
+	 *	        0         -overlap_begin
+	 *	        |         |
+	 *	Read 2: ------------------>
+	 *	Read 1:           ---------------------->
+	 */
+
+	if (overlap_begin == NO_ALIGNMENT)
+		return NOT_COMBINED;
+
+	if (overlap_begin >= 0) {
+		status = COMBINED_AS_INNIE;
+	} else {
+		const struct read *tmp;
+
+		/* Simplify generation of the combined read by turning the outie
+		 * case into the innie case.  */
+
+		tmp = read_1;
+		read_1 = read_2;
+		read_2 = tmp;
+
+		overlap_begin = -overlap_begin;
+		status = COMBINED_AS_OUTIE;
+		/*
+		 * Now it's just:
+		 *
+		 *		0	  overlap_begin
+		 *	        |         |
+		 *	Read 1: ------------------>
+		 *	Read 2:           ---------------------->
+		 *
+		 * The same as the "innie" case.
+		 */
+	}
+
+	/* Fill in the combined read.  */
+	generate_combined_read(read_1, read_2, combined_read,
+			       overlap_begin, params->cap_mismatch_quals);
+	return status;
 }

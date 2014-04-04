@@ -17,8 +17,6 @@ More details can be found in the original publication
 
 Limitations of FLASH include:
    - FLASH cannot merge paired-end reads that do not overlap.
-   - FLASH cannot merge read pairs that have an outward orientation, either
-     due to being "jumping" reads or due to excessive trimming.
    - FLASH is not designed for data that has a significant amount of indel
      errors (such as Sanger sequencing data).  It is best suited for Illumina
      data.

@@ -80,8 +80,6 @@ static void usage(const char *argv0)
 "\n"
 "Limitations of FLASH include:\n"
 "   - FLASH cannot merge paired-end reads that do not overlap.\n"
-"   - FLASH cannot merge read pairs that have an outward orientation, either\n"
-"     due to being \"jumping\" reads or due to excessive trimming.\n"
 "   - FLASH is not designed for data that has a significant amount of indel\n"
 "     errors (such as Sanger sequencing data).  It is best suited for Illumina\n"
 "     data.\n"
@@ -161,6 +159,23 @@ static void usage(const char *argv0)
 "                          numbers of correctly merged read pairs but at\n"
 "                          the expense of higher numbers of incorrectly\n"
 "                          merged read pairs.  Default: 0.25.\n"
+"\n"
+"  -O, --allow-outies      Also try combining read pairs in the \"outie\"\n"
+"                          orientation, e.g.\n"
+"\n"
+"                               Read 1: <-----------\n"
+"                               Read 2:       ------------>\n"
+"\n"
+"                          as opposed to only the \"innie\" orientation, e.g.\n"
+"\n"
+"                               Read 1:       <------------\n"
+"                               Read 2: ----------->\n"
+"\n"
+"                          FLASH uses the same parameters when trying each\n"
+"                          orientation.  If a read pair can be combined in\n"
+"                          both \"innie\" and \"outie\" orientations, the\n"
+"                          better-fitting one will be chosen using the same\n"
+"                          scoring algorithm that FLASH normally uses.\n"
 "\n"
 "  -p, --phred-offset=OFFSET\n"
 "                          The smallest ASCII value of the characters used to\n"
@@ -328,12 +343,13 @@ enum {
 	TAB_DELIMITED_OUTPUT_OPTION,
 };
 
-static const char *optstring = "m:M:x:p:r:f:s:IT:o:d:czt:qhv";
+static const char *optstring = "m:M:x:p:Or:f:s:IT:o:d:czt:qhv";
 static const struct option longopts[] = {
 	{"min-overlap",          required_argument,  NULL, 'm'},
 	{"max-overlap",          required_argument,  NULL, 'M'},
 	{"max-mismatch-density", required_argument,  NULL, 'x'},
 	{"phred-offset",         required_argument,  NULL, 'p'},
+	{"allow-outies",         no_argument,        NULL, 'O'},
 	{"read-len",             required_argument,  NULL, 'r'},
 	{"fragment-len",         required_argument,  NULL, 'f'},
 	{"fragment-len-stddev",  required_argument,  NULL, 's'},
@@ -636,6 +652,7 @@ static void *combiner_thread_proc(void *_params)
 			struct read *r1 = s1->reads[i];
 			struct read *r2 = s2->reads[i];
 			struct read *r_combined;
+			enum combine_status status;
 
 			s1->reads[i] = NULL;
 			s2->reads[i] = NULL;
@@ -647,8 +664,9 @@ static void *combiner_thread_proc(void *_params)
 			r_combined = s_combined->reads[s_combined->filled];
 
 			/* Try combining the reads.  */
-			if (combine_reads(r1, r2, r_combined, alg_params)) {
+			status = combine_reads(r1, r2, r_combined, alg_params);
 
+			if (status != NOT_COMBINED) {
 				/* Combination was successful.  */
 
 				/* Uncombined read structures are unneeded; mark
@@ -741,6 +759,7 @@ int main(int argc, char **argv)
 		.min_overlap = 10,
 		.max_mismatch_density = 0.25,
 		.cap_mismatch_quals = false,
+		.allow_outies = false,
 	};
 	struct read_format_params iparams = {
 		.fmt = READ_FORMAT_FASTQ,
@@ -822,6 +841,9 @@ int main(int argc, char **argv)
 				        "64 (for earlier Illumina data) or 33 "
 				        "(for Sanger and later Illumina data).");
 			}
+			break;
+		case 'O':
+			alg_params.allow_outies = true;
 			break;
 		case 'f':
 			fragment_len = strtol(optarg, &tmp, 10);
@@ -1065,6 +1087,8 @@ int main(int argc, char **argv)
 		     alg_params.max_overlap);
 		info("    Max mismatch density:  %f",
 		     alg_params.max_mismatch_density);
+		info("    Allow \"outie\" pairs:   %s",
+		     alg_params.allow_outies ? "true" : "false");
 		info("    Cap mismatch quals:    %s",
 		     alg_params.cap_mismatch_quals ? "true" : "false");
 		info("    Combiner threads:      %u",
