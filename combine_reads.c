@@ -247,7 +247,7 @@ compute_mismatch_stats(const char * restrict seq_1,
 static inline int
 pair_align(const struct read *read_1, const struct read *read_2,
 	   int min_overlap, int max_overlap, float max_mismatch_density,
-	   bool allow_outies)
+	   bool allow_outies, bool * was_outie)
 {
 	bool haveN = memchr(read_1->seq, 'N', read_1->seq_len) ||
 		     memchr(read_2->seq, 'N', read_2->seq_len);
@@ -257,6 +257,7 @@ pair_align(const struct read *read_1, const struct read *read_2,
 	float best_mismatch_density = max_mismatch_density + 1.0f;
 	float best_qual_score = 0.0f;
 	int best_position = NO_ALIGNMENT;
+	bool best_was_outie;
 	bool doing_outie = false;
 	int start;
 	int end;
@@ -292,7 +293,8 @@ again:
 			{
 				best_qual_score       = qual_score;
 				best_mismatch_density = mismatch_density;
-				best_position         = (doing_outie ? -i : i);
+				best_position         = i;
+				best_was_outie        = doing_outie;
 			}
 		}
 	}
@@ -309,6 +311,7 @@ again:
 	if (best_mismatch_density > max_mismatch_density)
 		return NO_ALIGNMENT;
 
+	*was_outie = best_was_outie;
 	return best_position;
 }
 
@@ -454,6 +457,7 @@ combine_reads(const struct read *read_1, const struct read *read_2,
 {
 	int overlap_begin;
 	enum combine_status status;
+	bool was_outie;
 
 	/* Do the alignment.  */
 
@@ -461,12 +465,13 @@ combine_reads(const struct read *read_1, const struct read *read_2,
 				   params->min_overlap,
 				   params->max_overlap,
 				   params->max_mismatch_density,
-				   params->allow_outies);
+				   params->allow_outies,
+				   &was_outie);
 	/*
 	 * If overlap_begin == NO_ALIGNMENT, then no sufficient overlap between
 	 * the reads was found.
 	 *
-	 * If overlap_begin >= 0, then the pair forms an "innie" overlap, and
+	 * If !@was_outie, then the pair forms an "innie" overlap, and
 	 * overlap_begin is the 0-based position in read_1 at which read_2
 	 * begins.  (Shown below with read 2 already reverse complemented!)
 	 *
@@ -475,12 +480,11 @@ combine_reads(const struct read *read_1, const struct read *read_2,
 	 *	Read 1: ------------------>
 	 *	Read 2:           ---------------------->
 	 *
-	 * If overlap_begin < 0, then the pair forms an "outie" overlap, and
-	 * overlap_begin is the negative of the 0-based position in read_2 at
-	 * which read_1 begins. (Shown below with read 2 already reverse
-	 * complemented!)
+	 * If @was_outie, then the pair forms an "outie" overlap, and
+	 * overlap_begin is the 0-based position in read_2 at which read_1
+	 * begins. (Shown below with read 2 already reverse complemented!)
 	 *
-	 *	        0         -overlap_begin
+	 *	        0         overlap_begin
 	 *	        |         |
 	 *	Read 2: ------------------>
 	 *	Read 1:           ---------------------->
@@ -489,7 +493,7 @@ combine_reads(const struct read *read_1, const struct read *read_2,
 	if (overlap_begin == NO_ALIGNMENT)
 		return NOT_COMBINED;
 
-	if (overlap_begin >= 0) {
+	if (!was_outie) {
 		status = COMBINED_AS_INNIE;
 	} else {
 		const struct read *tmp;
@@ -501,7 +505,6 @@ combine_reads(const struct read *read_1, const struct read *read_2,
 		read_1 = read_2;
 		read_2 = tmp;
 
-		overlap_begin = -overlap_begin;
 		status = COMBINED_AS_OUTIE;
 		/*
 		 * Now it's just:

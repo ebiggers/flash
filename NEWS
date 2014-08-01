@@ -1,3 +1,16 @@
+Version 1.2.11
+--------------
+- Fixed a bug that caused FLASH to crash under the following set of
+  circumstances: the --allow-outies option (added in v1.2.10) was specified; and
+  in a read pair, read 1 was longer than read 2; and the chosen merge aligned
+  the end of read 2 to the very beginning of read 1, e.g.
+
+	  Read 1:  ----------------------------------->
+	  Read 2:  <-------------------------
+
+  This bug was extremely likely to crash the program.  Therefore, the output of
+  successful runs of FLASH should not have been affected.
+
 Version 1.2.10
 --------------
 - FLASH now supports combining read pairs in outie orientation.  See help for
